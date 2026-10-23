@@ -11,7 +11,6 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-# ایمپورت‌های دیتابیس
 from database import (
     init_db, get_player, create_player, perform_gacha, start_new_match, start_2v2_match,
     resolve_turn, check_synergy, check_teammate_jealousy, finish_match_rewards,
@@ -20,7 +19,6 @@ from database import (
     shadow_league_result, use_wild_card, get_db_connection
 )
 
-# --- تنظیمات ---
 BOT_TOKEN = os.getenv("BOT_TOKEN", "توکن_ربات_خودت_رو_اینجا_بذار")
 OWNER_ID = 7023690411
 
@@ -28,22 +26,14 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# ==========================================
-# وب‌سرور Flask (برای Render)
-# ==========================================
 app = Flask(__name__)
-
 @app.route('/')
-def health():
-    return "Bot is running!"
+def health(): return "Bot is running!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
-# ==========================================
-# منوها و دکمه‌ها
-# ==========================================
 def main_menu_keyboard():
     kb = [
         [InlineKeyboardButton(text="🏟️ ورود به زمین مسابقه", callback_data="enter_match")],
@@ -57,9 +47,6 @@ def main_menu_keyboard():
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
-# ==========================================
-# هندلرهای اصلی و پروفایل
-# ==========================================
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     user_id = message.from_user.id
@@ -88,10 +75,6 @@ async def show_profile(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]])
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
-
-# ==========================================
-# گاچا و مدیریت تیم
-# ==========================================
 @dp.callback_query(F.data == "gacha_shop")
 async def gacha_shop(callback: types.CallbackQuery):
     text = "🎰 **بازار گاچا**\n\nبا ۱۰۰ سکه شانست رو امتحان کن!\n🔴 Legendary: ۳٪\n🟣 Epic: ۲۲٪\n🔵 Rare: ۷۵٪"
@@ -145,9 +128,7 @@ async def delete_character(callback: types.CallbackQuery):
     if remove_from_team(callback.from_user.id, int(callback.data.split("_")[2])):
         await callback.answer("🗑️ حذف شد!", show_alert=True)
         await manage_team(callback)
-# ==========================================
-# تمرین، استراحت و وایلد کارت
-# ==========================================
+
 @dp.callback_query(F.data == "training_menu")
 async def training_menu(callback: types.CallbackQuery):
     player = get_player(callback.from_user.id)
@@ -190,10 +171,6 @@ async def burn_card(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]])
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
-
-# ==========================================
-# مسابقات (۱v۱ و ۲v۲) و لیگ سایه
-# ==========================================
 @dp.callback_query(F.data == "enter_match")
 async def enter_match(callback: types.CallbackQuery):
     text = "🏟️ **ورود به زمین**\n\nنوع مسابقه:"
@@ -312,9 +289,6 @@ async def show_leaderboard(callback: types.CallbackQuery):
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
 
-# ==========================================
-# پنل مالک
-# ==========================================
 class AdminStates(StatesGroup):
     waiting_for_name = State()
     waiting_for_position = State()
@@ -374,9 +348,6 @@ async def process_image(message: types.Message, state: FSMContext):
     await message.answer(f"✅ **{data['name']}** ساخته شد!")
     await state.clear()
 
-# ==========================================
-# اجرای نهایی
-# ==========================================
 async def main():
     init_db()
     print("🚀 ربات روشن شد...")
