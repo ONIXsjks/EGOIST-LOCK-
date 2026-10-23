@@ -1,13 +1,14 @@
 import json
 import random
 import os
-from supabase import create_client, Client
+from supadns import create_smart_client as create_client
+from supabase import Client
 
 # 🔴 کلیدها از تنظیمات Render (Environment Variables) خوانده می‌شوند
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# اتصال به دیتابیس
+# اتصال به دیتابیس با استفاده از supadns برای حل مشکل DNS در Render
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def get_player(user_id):
