@@ -17,9 +17,9 @@ from database import (
     resolve_turn, check_synergy, check_teammate_jealousy, finish_match_rewards,
     get_player_team, remove_from_team, rest_player, train_player, generate_coach_mission, 
     check_coach_mission, get_leaderboard, get_player_rank, enter_shadow_league, 
-    shadow_league_result, use_wild_card, get_db_connection
+    shadow_league_result, use_wild_card, get_db_connection, supabase
 )
-from seed_data import seed_characters # اضافه شد برای ساخت خودکار کارت‌ها
+from seed_data import seed_characters
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = 7023690411
@@ -232,8 +232,8 @@ async def handle_match_action(callback: types.CallbackQuery):
         text = f"⚠️ **خیانت!** {jealousy['name']} توپ رو لو داد!\n\n"
         player = get_player(callback.from_user.id)
         state = player['current_match_state']
+        if isinstance(state, str): state = json.loads(state)
         state['score_npc'] += 1; state['turn'] += 1
-        from database import supabase
         supabase.table('players').update({'current_match_state': state}).eq('user_id', callback.from_user.id).execute()
         result = {"text": text, "state": state, "is_finished": state['turn'] > state['max_turns']}
     else:
@@ -241,13 +241,13 @@ async def handle_match_action(callback: types.CallbackQuery):
         if action == "combo" and synergy:
             player = get_player(callback.from_user.id)
             state = player['current_match_state']
+            if isinstance(state, str): state = json.loads(state)
             is_2v2 = state.get("is_2v2", False)
             if random.randint(1, 100) <= (95 if is_2v2 else 80):
                 state['score_player'] += 2; text = f"🔥 **{synergy['name']}** فعال شد! (۲ گل)"
             else:
                 state['score_npc'] += 1; text = "❌ حمله ترکیبی شکست خورد!"
             state['turn'] += 1
-            from database import supabase
             supabase.table('players').update({'current_match_state': state}).eq('user_id', callback.from_user.id).execute()
             result = {"text": text, "state": state, "is_finished": state['turn'] > state['max_turns']}
         else:
@@ -366,7 +366,6 @@ async def process_image(message: types.Message, state: FSMContext):
     image_id = message.photo[-1].file_id if message.photo else None
     if not image_id and message.text.lower() != "skip": return await message.answer("⚠️ عکس یا skip.")
     data = await state.get_data()
-    from database import supabase
     supabase.table('characters').insert({
         'name': data['name'], 'position': data['position'], 'technique': data['technique'],
         'base_power': data['base_power'], 'rarity': data['rarity'], 'is_cursed': False,
@@ -380,9 +379,13 @@ async def process_image(message: types.Message, state: FSMContext):
 # ==========================================
 async def main():
     init_db()
-    seed_characters() # این خط کارت‌ها رو توی Supabase می‌ریزه
+    seed_characters()
     print("🚀 ربات روشن شد...")
+    
+    # اجرای وب‌سرور Flask در یک ترد جداگانه (برای اینکه Render پورت باز ببینه)
     threading.Thread(target=run_flask, daemon=True).start()
+    
+    # اجرای ربات تلگرام
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
