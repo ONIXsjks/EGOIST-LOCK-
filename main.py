@@ -11,13 +11,13 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-# ایمپورت‌های دیتابیس
+# ایمپورت‌های دیتابیس (get_db_connection حذف شد و supabase اضافه شد)
 from database import (
     init_db, get_player, create_player, perform_gacha, start_new_match, start_2v2_match,
     resolve_turn, check_synergy, check_teammate_jealousy, finish_match_rewards,
     get_player_team, remove_from_team, rest_player, train_player, generate_coach_mission, 
     check_coach_mission, get_leaderboard, get_player_rank, enter_shadow_league, 
-    shadow_league_result, use_wild_card, get_db_connection, supabase
+    shadow_league_result, use_wild_card, supabase
 )
 from seed_data import seed_characters
 
