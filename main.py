@@ -19,9 +19,9 @@ from database import (
     check_coach_mission, get_leaderboard, get_player_rank, enter_shadow_league, 
     shadow_league_result, use_wild_card, get_db_connection
 )
-from seed_data import seed_characters # <--- اضافه شد
+from seed_data import seed_characters # اضافه شد برای ساخت خودکار کارت‌ها
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "توکن_ربات_خودت_رو_اینجا_بذار")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = 7023690411
 
 logging.basicConfig(level=logging.INFO)
@@ -230,25 +230,25 @@ async def handle_match_action(callback: types.CallbackQuery):
     
     if jealousy != "no_team" and jealousy["status"] == "betrayed":
         text = f"⚠️ **خیانت!** {jealousy['name']} توپ رو لو داد!\n\n"
-        conn = get_db_connection()
-        state = json.loads(conn.execute('SELECT current_match_state FROM players WHERE user_id = ?', (callback.from_user.id,)).fetchone()['current_match_state'])
+        player = get_player(callback.from_user.id)
+        state = player['current_match_state']
         state['score_npc'] += 1; state['turn'] += 1
-        conn.execute('UPDATE players SET current_match_state = ? WHERE user_id = ?', (json.dumps(state), callback.from_user.id))
-        conn.commit(); conn.close()
+        from database import supabase
+        supabase.table('players').update({'current_match_state': state}).eq('user_id', callback.from_user.id).execute()
         result = {"text": text, "state": state, "is_finished": state['turn'] > state['max_turns']}
     else:
         synergy = check_synergy(callback.from_user.id)
         if action == "combo" and synergy:
-            conn = get_db_connection()
-            state = json.loads(conn.execute('SELECT current_match_state FROM players WHERE user_id = ?', (callback.from_user.id,)).fetchone()['current_match_state'])
+            player = get_player(callback.from_user.id)
+            state = player['current_match_state']
             is_2v2 = state.get("is_2v2", False)
             if random.randint(1, 100) <= (95 if is_2v2 else 80):
                 state['score_player'] += 2; text = f"🔥 **{synergy['name']}** فعال شد! (۲ گل)"
             else:
                 state['score_npc'] += 1; text = "❌ حمله ترکیبی شکست خورد!"
             state['turn'] += 1
-            conn.execute('UPDATE players SET current_match_state = ? WHERE user_id = ?', (json.dumps(state), callback.from_user.id))
-            conn.commit(); conn.close()
+            from database import supabase
+            supabase.table('players').update({'current_match_state': state}).eq('user_id', callback.from_user.id).execute()
             result = {"text": text, "state": state, "is_finished": state['turn'] > state['max_turns']}
         else:
             result = resolve_turn(callback.from_user.id, action)
@@ -366,19 +366,21 @@ async def process_image(message: types.Message, state: FSMContext):
     image_id = message.photo[-1].file_id if message.photo else None
     if not image_id and message.text.lower() != "skip": return await message.answer("⚠️ عکس یا skip.")
     data = await state.get_data()
-    conn = get_db_connection()
-    conn.execute('INSERT INTO characters (name, position, technique, base_power, rarity, is_cursed, synergy_tag, image_url) VALUES (?, ?, ?, ?, ?, 0, ?, ?)', 
-                 (data['name'], data['position'], data['technique'], data['base_power'], data['rarity'], 'custom', image_id))
-    conn.commit(); conn.close()
+    from database import supabase
+    supabase.table('characters').insert({
+        'name': data['name'], 'position': data['position'], 'technique': data['technique'],
+        'base_power': data['base_power'], 'rarity': data['rarity'], 'is_cursed': False,
+        'synergy_tag': 'custom', 'image_url': image_id
+    }).execute()
     await message.answer(f"✅ **{data['name']}** ساخته شد!")
     await state.clear()
 
 # ==========================================
-# اجرای نهایی (این بخش خیلی مهمه)
+# اجرای نهایی
 # ==========================================
 async def main():
     init_db()
-    seed_characters() # <--- این خط کارت‌ها رو اضافه می‌کنه
+    seed_characters() # این خط کارت‌ها رو توی Supabase می‌ریزه
     print("🚀 ربات روشن شد...")
     threading.Thread(target=run_flask, daemon=True).start()
     await dp.start_polling(bot)
