@@ -50,6 +50,23 @@ def main_menu_keyboard():
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
+# ✅ تابع جدید برای جلوگیری از خطای ویرایش عکس
+async def safe_edit_message(callback: types.CallbackQuery, text: str, reply_markup=None, parse_mode="Markdown"):
+    try:
+        if callback.message.photo:
+            await callback.message.edit_caption(caption=text, reply_markup=reply_markup, parse_mode=parse_mode)
+        else:
+            await callback.message.edit_text(text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except Exception:
+        try:
+            await callback.message.delete()
+        except:
+            pass
+        if callback.message.photo:
+            await callback.message.answer_photo(photo=callback.message.photo[-1].file_id, caption=text, reply_markup=reply_markup, parse_mode=parse_mode)
+        else:
+            await callback.message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     user_id = message.from_user.id
@@ -65,10 +82,10 @@ async def cmd_start(message: types.Message):
         await message.answer_photo(photo=menu_image, caption=welcome, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
     else:
         await message.answer(welcome, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
-
 @dp.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: types.CallbackQuery):
-    await callback.message.edit_text("🔵 **منوی اصلی بلو لاک**\n\nچه کاری می‌خوای انجام بدی؟", reply_markup=main_menu_keyboard())
+    text = "🔵 **منوی اصلی بلو لاک**\n\nچه کاری می‌خوای انجام بدی؟"
+    await safe_edit_message(callback, text, reply_markup=main_menu_keyboard())
     await callback.answer()
 
 @dp.callback_query(F.data == "my_profile")
@@ -93,12 +110,14 @@ async def show_profile(callback: types.CallbackQuery):
 
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
         if image_url:
+            try:
+                await callback.message.delete()
+            except: pass
             await callback.message.answer_photo(photo=image_url, caption=text, reply_markup=kb)
-            await callback.message.delete()
         else:
-            await callback.message.edit_text(text, reply_markup=kb)
+            await safe_edit_message(callback, text, reply_markup=kb)
     except Exception as e:
-        await callback.message.edit_text(f"⚠️ خطا در دریافت پروفایل.\n(Error: {str(e)})")
+        await safe_edit_message(callback, f"⚠️ خطا در دریافت پروفایل.\n(Error: {str(e)})")
     await callback.answer()
 
 @dp.callback_query(F.data == "select_main_char")
@@ -108,7 +127,7 @@ async def select_main_char(callback: types.CallbackQuery):
     text = "🎯 **انتخاب کاراکتر اصلی**\n\nکدوم کارت توی ریپلای‌ها و پروفایل نمایش داده بشه؟"
     kb_buttons = [[InlineKeyboardButton(text=f"🃏 {c['name']}", callback_data=f"set_main_{c['char_id']}")] for c in team]
     kb_buttons.append([InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")])
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
+    await safe_edit_message(callback, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("set_main_"))
@@ -119,11 +138,12 @@ async def set_main_character(callback: types.CallbackQuery):
     conn.commit(); cur.close(); conn.close()
     await callback.answer("✅ کاراکتر اصلی انتخاب شد!", show_alert=True)
     await back_to_main(callback)
+
 @dp.callback_query(F.data == "gacha_shop")
 async def gacha_shop(callback: types.CallbackQuery):
     text = "🎰 **بازار گاچا**\n\nبا ۱۰۰ سکه شانست رو امتحان کن!\n🔴 Legendary: ۳٪\n🟣 Epic: ۲۲٪\n🔵 Rare: ۷۵٪"
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎲 ROLL GACHA (100 Coins)", callback_data="roll_gacha")], [InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    await safe_edit_message(callback, text, reply_markup=kb)
     await callback.answer()
 
 @dp.callback_query(F.data == "roll_gacha")
@@ -136,10 +156,12 @@ async def roll_gacha(callback: types.CallbackQuery):
     if result['is_cursed']: caption += "\n⚠️ **نفرین‌شده!**"
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎲 ROLL AGAIN", callback_data="roll_gacha")], [InlineKeyboardButton(text="🔙 BACK", callback_data="gacha_shop")]])
     if result.get('image_url'):
+        try:
+            await callback.message.delete()
+        except: pass
         await callback.message.answer_photo(photo=result['image_url'], caption=caption, reply_markup=kb, parse_mode="Markdown")
-        await callback.message.delete()
     else:
-        await callback.message.edit_text(caption, reply_markup=kb, parse_mode="Markdown")
+        await safe_edit_message(callback, caption, reply_markup=kb)
     await callback.answer()
 
 @dp.callback_query(F.data == "manage_team")
@@ -148,10 +170,10 @@ async def manage_team(callback: types.CallbackQuery):
     if not team:
         text = "🧠 **مدیریت تیم**\n\n❌ تیم خالیه!"
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎰 GACHA", callback_data="gacha_shop")], [InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
-        return await callback.message.edit_text(text, reply_markup=kb)
+        return await safe_edit_message(callback, text, reply_markup=kb)
     kb_buttons = [[InlineKeyboardButton(text=f"{'🔴' if c['rarity']=='Legendary' else '🟣' if c['rarity']=='Epic' else '🔵'} {c['name']} {'⚠️' if c['is_cursed'] else ''}", callback_data=f"view_char_{c['char_id']}")] for c in team]
     kb_buttons.append([InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")])
-    await callback.message.edit_text("🧠 **لیست کارت‌های تو:**", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
+    await safe_edit_message(callback, "🧠 **لیست کارت‌های تو:**", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("view_char_"))
@@ -163,7 +185,7 @@ async def view_character(callback: types.CallbackQuery):
     dmg = get_player_damage(callback.from_user.id, char_id)
     text = f"🃏 **{char['name']}**\n📍 {char['position']}\n⚡ **تکنیک:** {char['technique']}\n💪 {char['base_power']}\n💥 دمیج دریافتی: **{dmg}**\n{'⚠️ **نفرین‌شده!**' if char['is_cursed'] else '✅ سالم'}"
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🗑️ DELETE CARD", callback_data=f"delete_char_{char_id}")], [InlineKeyboardButton(text="🔙 BACK", callback_data="manage_team")]])
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    await safe_edit_message(callback, text, reply_markup=kb)
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("delete_char_"))
@@ -171,7 +193,6 @@ async def delete_character(callback: types.CallbackQuery):
     if remove_from_team(callback.from_user.id, int(callback.data.split("_")[2])):
         await callback.answer("🗑️ حذف شد!", show_alert=True)
         await manage_team(callback)
-
 @dp.callback_query(F.data == "free_mode")
 async def free_mode(callback: types.CallbackQuery):
     team = get_player_team(callback.from_user.id)
@@ -179,7 +200,7 @@ async def free_mode(callback: types.CallbackQuery):
     text = "🌌 **قلمرو اگو**\n\nمی‌خوای درخت مهارت کدوم کارت رو ببینی؟"
     kb_buttons = [[InlineKeyboardButton(text=f"🃏 {c['name']}", callback_data=f"select_char_{c['char_id']}")] for c in team]
     kb_buttons.append([InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")])
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
+    await safe_edit_message(callback, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("select_char_"))
@@ -209,7 +230,7 @@ async def show_char_skills(callback: types.CallbackQuery):
             else:
                 kb_buttons.append([InlineKeyboardButton(text=f"🔒 UNLOCK: {skill_name} · {cost} 🖤", callback_data=f"unlock_{skill_name.replace(' ', '_')}_{cost}_black")])
     kb_buttons.append([InlineKeyboardButton(text="🔙 بازگشت به لیست کارت‌ها", callback_data="free_mode")])
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons), parse_mode="Markdown")
+    await safe_edit_message(callback, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("unlock_"))
@@ -237,7 +258,7 @@ async def training_menu(callback: types.CallbackQuery):
     player = get_player(callback.from_user.id)
     text = f"🏋️ **تمرین**\n-------------------------\n😰 خستگی: {player['fatigue']}٪\n😰 فشار: {player['pressure']}٪\n🧘 روان: {player['sanity']}٪\n🪙 سکه: {player['normal_coins']}"
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🛌 REST (30 Coins)", callback_data="action_rest")], [InlineKeyboardButton(text="🏃 TRAIN (50 Coins)", callback_data="action_train")], [InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    await safe_edit_message(callback, text, reply_markup=kb)
     await callback.answer()
 
 @dp.callback_query(F.data == "action_rest")
@@ -255,6 +276,7 @@ async def action_train(callback: types.CallbackQuery):
     if res['level_up']: msg += f"\n🌟 لول {res['new_level']}!"
     await callback.answer(msg, show_alert=True)
     await training_menu(callback)
+
 class AdminStates(StatesGroup):
     waiting_for_name = State()
     waiting_for_position = State()
@@ -289,18 +311,18 @@ async def admin_panel(message: types.Message):
 @dp.callback_query(F.data == "admin_give_coins")
 async def admin_give_coins(callback: types.CallbackQuery):
     if callback.from_user.id != OWNER_ID: return
-    await callback.message.edit_text("🪙 روی پیام کاربر مورد نظر **ریپلای** کن و بنویس:\n`give [مقدار]`\nمثال: `give 500`")
+    await safe_edit_message(callback, "🪙 روی پیام کاربر مورد نظر **ریپلای** کن و بنویس:\n`give [مقدار]`\nمثال: `give 500`")
 
 @dp.callback_query(F.data == "admin_ban")
 async def admin_ban(callback: types.CallbackQuery):
     if callback.from_user.id != OWNER_ID: return
-    await callback.message.edit_text("🚫 روی پیام کاربر مورد نظر **ریپلای** کن و بنویس:\n`ban`")
+    await safe_edit_message(callback, "🚫 روی پیام کاربر مورد نظر **ریپلای** کن و بنویس:\n`ban`")
 
 @dp.callback_query(F.data == "admin_set_image")
 async def admin_set_image(callback: types.CallbackQuery, state: FSMContext):
     if callback.from_user.id != OWNER_ID: return
     await state.set_state(AdminStates.waiting_for_menu_image)
-    await callback.message.edit_text("🖼️ **لطفاً عکس جدید منو رو ارسال کن:**")
+    await safe_edit_message(callback, "🖼️ **لطفاً عکس جدید منو رو ارسال کن:**")
 
 @dp.message(AdminStates.waiting_for_menu_image)
 async def process_menu_image(message: types.Message, state: FSMContext):
@@ -315,7 +337,7 @@ async def process_menu_image(message: types.Message, state: FSMContext):
 async def admin_change_char_image(callback: types.CallbackQuery, state: FSMContext):
     if callback.from_user.id != OWNER_ID: return
     await state.set_state(AdminStates.waiting_for_char_to_change)
-    await callback.message.edit_text("🖼️ اسم کاراکتری که می‌خوای عکسش رو عوض کنی بنویس (مثلاً: Michael Kaiser):")
+    await safe_edit_message(callback, "🖼️ اسم کاراکتری که می‌خوای عکسش رو عوض کنی بنویس (مثلاً: Michael Kaiser):")
 
 @dp.message(AdminStates.waiting_for_char_to_change)
 async def process_char_to_change(message: types.Message, state: FSMContext):
@@ -344,7 +366,7 @@ async def process_char_new_image(message: types.Message, state: FSMContext):
 async def admin_create_event(callback: types.CallbackQuery, state: FSMContext):
     if callback.from_user.id != OWNER_ID: return
     await state.set_state(AdminStates.waiting_for_event_name)
-    await callback.message.edit_text("1️⃣ اسم باس جدید را وارد کن:")
+    await safe_edit_message(callback, "1️⃣ اسم باس جدید را وارد کن:")
 
 @dp.message(AdminStates.waiting_for_event_name)
 async def process_event_name(message: types.Message, state: FSMContext):
@@ -371,12 +393,11 @@ async def process_event_reward_normal(message: types.Message, state: FSMContext)
     create_event(data['name'], data['power'], data['reward_black'], data['reward_normal'])
     await message.answer(f"✅ **ایونت {data['name']} ساخته شد!**")
     await state.clear()
-
 @dp.callback_query(F.data == "admin_add_card")
 async def admin_add_card(callback: types.CallbackQuery, state: FSMContext):
     if callback.from_user.id != OWNER_ID: return
     await state.set_state(AdminStates.waiting_for_name)
-    await callback.message.edit_text("1️⃣ نام کاراکتر:")
+    await safe_edit_message(callback, "1️⃣ نام کاراکتر:")
 
 @dp.message(AdminStates.waiting_for_name)
 async def process_name(message: types.Message, state: FSMContext):
@@ -403,7 +424,7 @@ async def process_power(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data.startswith("rarity_"), AdminStates.waiting_for_rarity)
 async def process_rarity(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(rarity=callback.data.split("_")[1]); await state.set_state(AdminStates.waiting_for_image)
-    await callback.message.edit_text("6️⃣ عکس بفرست (یا کلمه skip):")
+    await safe_edit_message(callback, "6️⃣ عکس بفرست (یا کلمه skip):")
 
 @dp.message(AdminStates.waiting_for_image)
 async def process_image(message: types.Message, state: FSMContext):
@@ -425,16 +446,19 @@ async def coach_agenda(callback: types.CallbackQuery):
     except Exception as e:
         text = f"⚠️ خطا در دریافت ماموریت.\n(Error: {str(e)})"
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
-    await callback.message.edit_text(text, reply_markup=kb)
+    await safe_edit_message(callback, text, reply_markup=kb)
     await callback.answer()
+
 @dp.callback_query(F.data == "active_event_menu")
 async def active_event_menu(callback: types.CallbackQuery):
     event = get_active_event()
     if not event:
-        return await callback.message.edit_text("🔥 **ایونت فعالی وجود ندارد!**\nمنتظر بمانید تا ادمین ایونت جدیدی ایجاد کند.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]]))
+        text = "🔥 **ایونت فعالی وجود ندارد!**\nمنتظر بمانید تا ادمین ایونت جدیدی ایجاد کند."
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
+        return await safe_edit_message(callback, text, reply_markup=kb)
     text = f"🔥 **ایونت فعال: {event['boss_name']}**\n-------------------------\n💀 قدرت باس: {event['boss_power']}\n🎁 جایزه: {event['reward_black']} 🖤 و {event['reward_normal']} 🪙\n\nآماده‌ای برای مبارزه؟"
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚔️ FIGHT BOSS", callback_data=f"fight_custom_{event['event_id']}")], [InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    await safe_edit_message(callback, text, reply_markup=kb)
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("fight_custom_"))
@@ -448,7 +472,7 @@ async def fight_custom(callback: types.CallbackQuery):
     else:
         text = f"💀 **شکست در برابر {result['boss_name']}!**\n-------------------------\nقدرت تیم تو: {result['player_power']:.1f}\nقدرت باس: {result['boss_power']}\n\nتیمت رو قوی‌تر کن و دوباره برگرد."
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚔️ FIGHT AGAIN", callback_data=f"fight_custom_{event_id}")], [InlineKeyboardButton(text="🔙 MAIN MENU", callback_data="back_to_main")]])
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    await safe_edit_message(callback, text, reply_markup=kb)
     await callback.answer()
 
 @dp.message(F.text)
