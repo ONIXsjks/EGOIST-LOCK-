@@ -13,13 +13,12 @@ def init_db():
     print("✅ اتصال به دیتابیس برقرار است.")
     conn = get_db_connection(); cur = conn.cursor()
     
-    # ساخت تمام جدول‌ها
     cur.execute('''CREATE TABLE IF NOT EXISTS players (
         user_id BIGINT PRIMARY KEY, username TEXT, level INTEGER DEFAULT 1, xp INTEGER DEFAULT 0,
         ego INTEGER DEFAULT 100, sanity INTEGER DEFAULT 100, fatigue INTEGER DEFAULT 0, pressure INTEGER DEFAULT 0,
         black_coins INTEGER DEFAULT 0, normal_coins INTEGER DEFAULT 100, team_json JSONB DEFAULT '[]'::jsonb,
         current_match_state JSONB DEFAULT NULL, in_shadow_league BOOLEAN DEFAULT FALSE, shadow_wins INTEGER DEFAULT 0,
-        ego_broken_at TIMESTAMPTZ DEFAULT NULL, last_attack_at TIMESTAMPTZ DEFAULT NULL
+        ego_broken_at TIMESTAMPTZ DEFAULT NULL, last_attack_at TIMESTAMPTZ DEFAULT NULL, last_match_action_at TIMESTAMPTZ DEFAULT NULL
     )''')
     
     cur.execute('''CREATE TABLE IF NOT EXISTS characters (
@@ -87,7 +86,6 @@ def use_wild_card(user_id, char_id_to_burn):
     team.append(legendary['char_id'])
     cur.execute('UPDATE players SET team_json = %s WHERE user_id = %s', (json.dumps(team), user_id))
     conn.commit(); cur.close(); conn.close(); return dict(legendary)
-
 def check_ego_recovery(user_id):
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute('SELECT ego, ego_broken_at FROM players WHERE user_id = %s', (user_id,))
@@ -98,6 +96,7 @@ def check_ego_recovery(user_id):
             cur.execute('UPDATE players SET ego = 100, ego_broken_at = NULL WHERE user_id = %s', (user_id,))
             conn.commit(); cur.close(); conn.close(); return "recovered"
     cur.close(); conn.close(); return "not_recovered"
+
 def attack_with_technique(user_id, technique_name, opponent_name):
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute('SELECT ego, team_json, ego_broken_at, xp, normal_coins, level, last_attack_at FROM players WHERE user_id = %s', (user_id,))
@@ -129,11 +128,23 @@ def attack_with_technique(user_id, technique_name, opponent_name):
     if not chosen_char:
         conn.close(); return "no_technique"
 
-    # تعیین کول‌داون بر اساس نوع مهارت
     currency_type = "normal"
     if matched_skill_name in unlocked:
         currency_type = unlocked[matched_skill_name]
-        
+
+    # تنظیم حداقل/حداکثر دمیج و اگوی اولیه بر اساس رنک
+    rarity = chosen_char['rarity']
+    if rarity == 'Legendary':
+        min_dmg, max_dmg = (300, 400) if currency_type == "black" else (200, 250)
+        max_ego = 3000
+    elif rarity == 'Epic':
+        min_dmg, max_dmg = (220, 300) if currency_type == "black" else (150, 190)
+        max_ego = 2000
+    else: # Rare
+        min_dmg, max_dmg = (180, 250) if currency_type == "black" else (100, 150)
+        max_ego = 1000
+
+    # کول‌داون اختصاصی
     if currency_type == "black":
         cooldown_sec = 30
     elif matched_skill_name != chosen_char['technique']:
@@ -148,17 +159,6 @@ def attack_with_technique(user_id, technique_name, opponent_name):
             conn.close()
             return f"cooldown_{remaining}"
 
-    rarity = chosen_char['rarity']
-    if rarity == 'Legendary':
-        min_dmg, max_dmg = (300, 400) if currency_type == "black" else (200, 250)
-        max_ego = 3000
-    elif rarity == 'Epic':
-        min_dmg, max_dmg = (220, 300) if currency_type == "black" else (150, 190)
-        max_ego = 2000
-    else:
-        min_dmg, max_dmg = (180, 250) if currency_type == "black" else (100, 150)
-        max_ego = 1000
-        
     damage = random.randint(min_dmg, max_dmg)
     new_ego = max(0, player['ego'] - 10)
     reward_xp = random.randint(2, 5) 
@@ -176,7 +176,7 @@ def attack_with_technique(user_id, technique_name, opponent_name):
         f"💥 -{damage} 🔥 **CRIT** 🔥\n"
         f"🧠 **Ego:** {opponent_name} {max(0, max_ego - damage)}/{max_ego:,}\n"
         f"▭▭▭▭▭▭▭▭▭▭▭▭\n"
-        f"🧠 **Ego:** {chosen_char['name']} {new_ego}/100\n"
+        f"🧠 **Ego:** {chosen_char['name']} {new_ego}/{max_ego:,}\n"
         f"▭▭▭▭▭▭▭▭▭▭▭▭\n"
         f"⭐ +{reward_xp} XP · 🪙 +{reward_coins}"
     )
@@ -237,7 +237,6 @@ def start_2v2_match(user_id):
     match_state = {"type": "2v2", "player_star": chars[0]['name'], "player_technique": chars[0]['technique'], "player_power": player_power, "npc_name": "تیم دو نفره حریف", "npc_power": random.randint(70, 100), "score_player": 0, "score_npc": 0, "turn": 1, "max_turns": 3}
     cur.execute('UPDATE players SET current_match_state = %s WHERE user_id = %s', (json.dumps(match_state), user_id))
     conn.commit(); cur.close(); conn.close(); return match_state
-
 def enter_shadow_league(user_id):
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute('UPDATE players SET in_shadow_league = TRUE, shadow_wins = 0, sanity = 50 WHERE user_id = %s', (user_id,))
