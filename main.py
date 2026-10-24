@@ -72,12 +72,14 @@ async def back_to_main(callback: types.CallbackQuery):
     await callback.message.edit_text("🔵 **منوی اصلی بلو لاک**\n\nچه کاری می‌خوای انجام بدی؟", reply_markup=main_menu_keyboard())
     await callback.answer()
 
+# --- پروفایل (اصلاح شده بدون ارور مارک‌داون) ---
 @dp.callback_query(F.data == "my_profile")
 async def show_profile(callback: types.CallbackQuery):
     try:
         player = get_player(callback.from_user.id)
         if not player:
             return await callback.answer("❌ ابتدا /start بزنید.", show_alert=True)
+            
         p = dict(player)
         ego = p.get('current_ego', 2000)
         sanity = p.get('sanity', 100)
@@ -88,17 +90,23 @@ async def show_profile(callback: types.CallbackQuery):
         level = p.get('level', 1)
         xp = p.get('xp', 0)
         username = p.get('username', 'Unknown')
-        text = (f"👤 **پروفایل: {username}**\n-------------------------\n"
+
+        text = (f"👤 پروفایل: {username}\n"
+                f"-------------------------\n"
                 f"📈 سطح: {level} | XP: {xp}\n"
                 f"🧠 اِگو: {ego}/2000 | 🧘 روان: {sanity}\n"
                 f"⚡ خستگی: {fatigue} | 😰 فشار: {pressure}\n"
-                f"-------------------------\n🪙 سکه: {normal_coins}\n🖤 سکه سیاه: {black_coins}")
+                f"-------------------------\n"
+                f"🪙 سکه: {normal_coins}\n"
+                f"🖤 سکه سیاه: {black_coins}")
+        
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
-        await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+        await callback.message.edit_text(text, reply_markup=kb)
     except Exception as e:
         await callback.message.edit_text(f"⚠️ خطا در دریافت پروفایل.\n(Error: {str(e)})")
     await callback.answer()
 
+# --- توطئه مربی (اصلاح شده) ---
 @dp.callback_query(F.data == "coach_agenda")
 async def coach_agenda(callback: types.CallbackQuery):
     try:
@@ -109,11 +117,11 @@ async def coach_agenda(callback: types.CallbackQuery):
             mission_text = "در بازی بعدی، حداقل ۳ بار خودت شوت بزن."
         else:
             mission_text = "یک ماموریت ناشناخته."
-        text = f"🕵️‍♂️ **ماموریت مخفی مربی:**\n\n{mission_text}\n\n⚠️ اگر این ماموریت رو انجام ندی، اِگوت کم میشه و فشار روانی‌ات بالا میره!"
+        text = f"🕵️‍♂️ ماموریت مخفی مربی:\n\n{mission_text}\n\n⚠️ اگر این ماموریت رو انجام ندی، اِگوت کم میشه و فشار روانی‌ات بالا میره!"
     except Exception as e:
         text = f"⚠️ خطا در دریافت ماموریت.\n(Error: {str(e)})"
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
 @dp.callback_query(F.data == "gacha_shop")
 async def gacha_shop(callback: types.CallbackQuery):
@@ -452,7 +460,7 @@ class AdminStates(StatesGroup):
     waiting_for_event_reward_black = State()
     waiting_for_event_reward_normal = State()
 
-# --- پنل مالک (دستور /admin) ---
+# --- دستور /admin ---
 @dp.message(Command("admin"))
 async def admin_panel(message: types.Message):
     if message.from_user.id != OWNER_ID: 
