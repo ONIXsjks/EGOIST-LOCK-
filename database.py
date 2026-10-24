@@ -34,9 +34,16 @@ def init_db():
     cur.execute('''CREATE TABLE IF NOT EXISTS active_events (event_id SERIAL PRIMARY KEY, boss_name TEXT, boss_power INTEGER, reward_black INTEGER, reward_normal INTEGER, is_active BOOLEAN DEFAULT TRUE)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS coach_missions (mission_id SERIAL PRIMARY KEY, player_id BIGINT, mission_type TEXT, target_name TEXT, is_active BOOLEAN DEFAULT TRUE, is_completed BOOLEAN DEFAULT FALSE)''')
     
-    # ✅ اضافه کردن ستون‌های جدید برای فلو و بلیط
+    # ستون‌های جدید برای فلو، بلیط، تمرین اختصاصی و اسکین
     cur.execute('ALTER TABLE players ADD COLUMN IF NOT EXISTS flow_until TIMESTAMPTZ')
     cur.execute('ALTER TABLE players ADD COLUMN IF NOT EXISTS free_gacha_ticket INTEGER DEFAULT 0')
+    cur.execute('ALTER TABLE players ADD COLUMN IF NOT EXISTS training_points INTEGER DEFAULT 0')
+    cur.execute('ALTER TABLE players ADD COLUMN IF NOT EXISTS skin_inventory JSONB DEFAULT \'{}\'::jsonb')
+    cur.execute('ALTER TABLE players ADD COLUMN IF NOT EXISTS active_skin JSONB DEFAULT \'{}\'::jsonb')
+    
+    # ستون‌های جدید برای آپگرید کارت‌ها
+    cur.execute('ALTER TABLE characters ADD COLUMN IF NOT EXISTS bonus_damage INTEGER DEFAULT 0')
+    cur.execute('ALTER TABLE characters ADD COLUMN IF NOT EXISTS cooldown_reduction INTEGER DEFAULT 0')
     
     conn.commit(); cur.close(); conn.close()
 
@@ -68,12 +75,9 @@ def upgrade_card_duplicate(user_id, char_id):
     player = cur.fetchone()
     if not player or char_id not in player['team_json']:
         conn.close(); return "not_in_team"
-    
     cur.execute('UPDATE characters SET base_power = base_power + 5 WHERE char_id = %s', (char_id,))
-    
     team = player['team_json']
     team.remove(char_id) 
-    
     cur.execute('UPDATE players SET team_json = %s WHERE user_id = %s', (json.dumps(team), user_id))
     conn.commit(); cur.close(); conn.close()
     return "success"
@@ -82,13 +86,11 @@ def buy_from_black_market(user_id, item_type):
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute('SELECT black_coins, team_json FROM players WHERE user_id = %s', (user_id,))
     player = cur.fetchone()
-    
     if item_type == "legendary_ticket":
         cost = 50
         if player['black_coins'] < cost: conn.close(); return "no_coins"
         cur.execute('UPDATE players SET black_coins = black_coins - %s, free_gacha_ticket = free_gacha_ticket + 1 WHERE user_id = %s', (cost, user_id))
         conn.commit(); conn.close(); return "success_legendary_ticket"
-    
     elif item_type == "power_boost":
         cost = 30
         if player['black_coins'] < cost: conn.close(); return "no_coins"
@@ -96,7 +98,6 @@ def buy_from_black_market(user_id, item_type):
             cur.execute('UPDATE characters SET base_power = base_power + 10 WHERE char_id = ANY(%s)', (player['team_json'],))
         cur.execute('UPDATE players SET black_coins = black_coins - %s WHERE user_id = %s', (cost, user_id))
         conn.commit(); conn.close(); return "success_power_boost"
-    
     conn.close(); return "invalid_item"
 
 def trigger_flow_state(user_id):
@@ -113,6 +114,87 @@ def check_flow_state(user_id):
         if player['flow_until'] > datetime.now(player['flow_until'].tzinfo):
             conn.close(); return True
     conn.close(); return False
+
+def add_training_point(user_id, amount=1):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('UPDATE players SET training_points = training_points + %s WHERE user_id = %s', (amount, user_id))
+    conn.commit(); cur.close(); conn.close()
+    return "success"
+
+def upgrade_card_stat(user_id, char_id, stat_type):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT training_points FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if not player or player['training_points'] <= 0: conn.close(); return "no_points"
+    if stat_type == "damage":
+        cur.execute('UPDATE characters SET bonus_damage = bonus_damage + 10 WHERE char_id = %s', (char_id,))
+    elif stat_type == "cooldown":
+        cur.execute('UPDATE characters SET cooldown_reduction = cooldown_reduction + 2 WHERE char_id = %s', (char_id,))
+    cur.execute('UPDATE players SET training_points = training_points - 1 WHERE user_id = %s', (user_id,))
+    conn.commit(); cur.close(); conn.close()
+    return "success"
+
+def add_skin_to_inventory(user_id, char_id, skin_file_id):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT skin_inventory FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    inv = player['skin_inventory'] if player['skin_inventory'] else {}
+    inv[str(char_id)] = skin_file_id
+    cur.execute('UPDATE players SET skin_inventory = %s WHERE user_id = %s', (json.dumps(inv), user_id))
+    conn.commit(); cur.close(); conn.close()
+    return "success"
+
+def set_active_skin(user_id, char_id, skin_file_id):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT active_skin FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    active = player['active_skin'] if player['active_skin'] else {}
+    active[str(char_id)] = skin_file_id
+    cur.execute('UPDATE players SET active_skin = %s WHERE user_id = %s', (json.dumps(active), user_id))
+    conn.commit(); cur.close(); conn.close()
+    return "success"
+
+# ✅ توابع جدید برای دستور ادمین (سکه سیاه)
+def admin_give_coins(user_id, amount, coin_type="normal"):
+    conn = get_db_connection(); cur = conn.cursor()
+    if coin_type == "normal":
+        cur.execute('UPDATE players SET normal_coins = normal_coins + %s WHERE user_id = %s', (amount, user_id))
+    else:
+        cur.execute('UPDATE players SET black_coins = black_coins + %s WHERE user_id = %s', (amount, user_id))
+    conn.commit(); cur.close(); conn.close()
+    return "success"
+def set_global_event(event_type, duration_minutes):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute("INSERT INTO bot_settings (setting_key, setting_value) VALUES ('global_event', %s) ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value", (json.dumps({"type": event_type, "end_time": (datetime.now() + timedelta(minutes=duration_minutes)).isoformat()}),))
+    conn.commit(); cur.close(); conn.close()
+
+def get_global_event():
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute("SELECT setting_value FROM bot_settings WHERE setting_key = 'global_event'")
+    res = cur.fetchone(); cur.close(); conn.close()
+    if res:
+        event = json.loads(res['setting_value'])
+        if datetime.fromisoformat(event['end_time']) > datetime.now():
+            return event
+    return None
+
+def start_bet_duel(attacker_id, defender_id, amount):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT normal_coins FROM players WHERE user_id IN (%s, %s)', (attacker_id, defender_id))
+    players = cur.fetchall()
+    if len(players) < 2 or any(p['normal_coins'] < amount for p in players):
+        conn.close(); return "no_coins"
+    cur.execute('UPDATE players SET normal_coins = normal_coins - %s WHERE user_id IN (%s, %s)', (amount, attacker_id, defender_id))
+    conn.commit(); cur.close(); conn.close()
+    return "success"
+
+def resolve_bet_duel(winner_id, loser_id, amount):
+    conn = get_db_connection(); cur = conn.cursor()
+    total_prize = amount * 2
+    cur.execute('UPDATE players SET normal_coins = normal_coins + %s WHERE user_id = %s', (total_prize, winner_id))
+    conn.commit(); cur.close(); conn.close()
+    return "success"
+
 def unlock_skill_db(user_id, skill_name, currency):
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute('INSERT INTO player_skills (user_id, skill_name, is_unlocked, currency) VALUES (%s, %s, TRUE, %s) ON CONFLICT (user_id, skill_name) DO UPDATE SET is_unlocked = TRUE, currency = EXCLUDED.currency', (user_id, skill_name, currency))
@@ -174,7 +256,7 @@ def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
     if not player or player['current_ego'] <= 0:
         conn.close(); return "ego_broken"
 
-    cur.execute('SELECT name, technique, base_power, rarity FROM characters WHERE char_id = ANY(%s)', (player['team_json'],))
+    cur.execute('SELECT name, technique, base_power, rarity, bonus_damage, cooldown_reduction FROM characters WHERE char_id = ANY(%s)', (player['team_json'],))
     team_chars = cur.fetchall()
     unlocked = get_unlocked_skills(user_id)
     
@@ -205,6 +287,12 @@ def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
     elif rarity == 'Epic': min_dmg, max_dmg = (220, 300) if currency_type == "black" else (150, 190)
     else: min_dmg, max_dmg = (180, 250) if currency_type == "black" else (100, 150)
 
+    min_dmg += chosen_char['bonus_damage']; max_dmg += chosen_char['bonus_damage']
+
+    event = get_global_event()
+    if event and event['type'] == 'rain_of_goals':
+        min_dmg = int(min_dmg * 1.2); max_dmg = int(max_dmg * 1.2)
+
     is_flow = check_flow_state(user_id)
     if is_flow:
         min_dmg *= 2; max_dmg *= 2
@@ -212,6 +300,8 @@ def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
     if currency_type == "black": cooldown_sec = 30
     elif matched_skill_name != chosen_char['technique']: cooldown_sec = 15
     else: cooldown_sec = 5
+    
+    cooldown_sec = max(1, cooldown_sec - chosen_char['cooldown_reduction'])
 
     if player['last_attack_at']:
         time_passed = datetime.now(player['last_attack_at'].tzinfo) - player['last_attack_at']
@@ -251,8 +341,9 @@ def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
         f"😵 **{opponent_name}** گیج شد و عقب رفت!"
     ]
     
-    flow_text = "\n\n🔥 **FLOW STATE!** 🔥\n" + f"**{opponent_name}** اِگوش شکست و وارد حالت فلو شد! تا ۳۰ ثانیه بعد دمیجش دوبرابر میشه!" if flow_activated else ""
+    flow_text = "\n\n🔥 **FLOW STATE!** 🔥\n" + f"**{opponent_name}** اِگوش شکست و وارد حالت فلو شد!" if flow_activated else ""
     flow_text_attacker = "\n\n🌟 **شما در حالت فلو هستید!** دمیج شما دوبرابر شد!" if is_flow else ""
+    event_text = "\n\n🌧️ **باران گل فعال است!** (دمیج ۲۰٪ افزایش یافت)" if event and event['type'] == 'rain_of_goals' else ""
 
     return (
         f"{random.choice(attack_texts)}\n"
@@ -265,7 +356,7 @@ def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
         f"🧠 **Ego:** {chosen_char['name']} {new_player_ego:,}/2,000\n"
         f"▭▭▭▭▭▭▭▭▭▭▭▭\n"
         f"⭐ +{random.randint(2, 5)} XP · 🪙 +{random.randint(2, 5)}"
-        f"{flow_text}{flow_text_attacker}"
+        f"{event_text}{flow_text}{flow_text_attacker}"
     )
 
 def perform_gacha(user_id, cost=100):
@@ -325,7 +416,7 @@ def train_player(user_id):
     if player['fatigue'] >= 90: conn.close(); return "too_tired"
     new_xp = player['xp'] + 15; level = player['level']; level_up = False
     if new_xp >= 100: new_xp -= 100; level += 1; level_up = True
-    cur.execute('UPDATE players SET fatigue = %s, normal_coins = %s, xp = %s, level = %s WHERE user_id = %s', (min(100, player['fatigue'] + 30), player['normal_coins'] - 50, new_xp, level, user_id))
+    cur.execute('UPDATE players SET fatigue = %s, normal_coins = %s, xp = %s, level = %s, training_points = training_points + 1 WHERE user_id = %s', (min(100, player['fatigue'] + 30), player['normal_coins'] - 50, new_xp, level, user_id))
     conn.commit(); cur.close(); conn.close(); return {"status": "success", "xp": 15, "level_up": level_up, "new_level": level}
 
 def get_leaderboard(limit=10):
@@ -346,11 +437,9 @@ def resolve_duel(user_id, player_char_name, player_technique, player_power, npc_
     damage_multiplier = 1.5 
     action_text = f"تکنیک {player_technique}"
     final_damage = max(0, int(base_damage * damage_multiplier) + random.randint(-10, 10))
-    
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute('INSERT INTO player_damage (user_id, char_id, damage_received) VALUES (%s, (SELECT char_id FROM characters WHERE name = %s LIMIT 1), %s) ON CONFLICT (user_id, char_id) DO UPDATE SET damage_received = player_damage.damage_received + EXCLUDED.damage_received', (user_id, npc_name, final_damage))
     conn.commit(); cur.close(); conn.close()
-
     if final_damage > 0:
         return {"success": True, "text": f"☠️ **{player_char_name}** ➔ 📍 **{npc_name}**\nLv.1 · 『 {player_technique} 』\n💥 -{final_damage} 🔥 **CRIT** 🔥\n🧠 **Ego:** {npc_name} 0/2,500\n▭▭▭▭▭▭▭▭▭▭▭▭\n🧠 **Ego:** {player_char_name} 477/2,500\n▭▭▭▭▭▭▭▭▭▭▭▭\n⭐ +20 XP · 🪙 +25"}
     else:
