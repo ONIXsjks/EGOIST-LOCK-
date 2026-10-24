@@ -7,7 +7,7 @@ def seed_characters():
     # چک می‌کنیم اگه کارت‌ها از قبل توی دیتابیس هستن، دوباره اضافه نشن
     cur.execute("SELECT COUNT(*) FROM characters")
     if cur.fetchone()['count'] > 0:
-        print("⚠️ کاراکترها از قبل وجود دارند.")
+        print("⚠️ کاراکترها از قبل وجود دارند و نیازی به اضافه کردن مجدد نیست.")
         cur.close()
         conn.close()
         return
