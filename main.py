@@ -72,47 +72,50 @@ async def back_to_main(callback: types.CallbackQuery):
     await callback.message.edit_text("🔵 **منوی اصلی بلو لاک**\n\nچه کاری می‌خوای انجام بدی؟", reply_markup=main_menu_keyboard())
     await callback.answer()
 
+# --- پروفایل اصلاح شده با dict ---
 @dp.callback_query(F.data == "my_profile")
 async def show_profile(callback: types.CallbackQuery):
-    player = get_player(callback.from_user.id)
-    if not player:
-        return await callback.answer("❌ ابتدا /start بزنید.", show_alert=True)
-        
-    ego = player.get('ego', 100)
-    sanity = player.get('sanity', 100)
-    fatigue = player.get('fatigue', 0)
-    pressure = player.get('pressure', 0)
-    normal_coins = player.get('normal_coins', 0)
-    black_coins = player.get('black_coins', 0)
-    level = player.get('level', 1)
-    xp = player.get('xp', 0)
-    username = player.get('username', 'Unknown')
+    try:
+        player = get_player(callback.from_user.id)
+        if not player:
+            return await callback.answer("❌ ابتدا /start بزنید.", show_alert=True)
+            
+        p = dict(player)
+        ego = p.get('current_ego', 2000) # استفاده از current_ego
+        sanity = p.get('sanity', 100)
+        fatigue = p.get('fatigue', 0)
+        pressure = p.get('pressure', 0)
+        normal_coins = p.get('normal_coins', 0)
+        black_coins = p.get('black_coins', 0)
+        level = p.get('level', 1)
+        xp = p.get('xp', 0)
+        username = p.get('username', 'Unknown')
 
-    text = (f"👤 **پروفایل: {username}**\n-------------------------\n"
-            f"📈 سطح: {level} | XP: {xp}\n"
-            f"🧠 اِگو: {ego} | 🧘 روان: {sanity}\n"
-            f"⚡ خستگی: {fatigue} | 😰 فشار: {pressure}\n"
-            f"-------------------------\n🪙 سکه: {normal_coins}\n🖤 سکه سیاه: {black_coins}")
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+        text = (f"👤 **پروفایل: {username}**\n-------------------------\n"
+                f"📈 سطح: {level} | XP: {xp}\n"
+                f"🧠 اِگو: {ego}/2000 | 🧘 روان: {sanity}\n"
+                f"⚡ خستگی: {fatigue} | 😰 فشار: {pressure}\n"
+                f"-------------------------\n🪙 سکه: {normal_coins}\n🖤 سکه سیاه: {black_coins}")
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    except Exception as e:
+        await callback.message.edit_text(f"⚠️ خطا در دریافت پروفایل.\n(Error: {str(e)})")
     await callback.answer()
 
+# --- توطئه مربی اصلاح شده ---
 @dp.callback_query(F.data == "coach_agenda")
 async def coach_agenda(callback: types.CallbackQuery):
     try:
         mission = generate_coach_mission(callback.from_user.id)
-        
         if mission['mission_type'] == "lose_on_purpose":
             mission_text = "در بازی بعدی بباز."
         elif mission['mission_type'] == "take_shots":
             mission_text = "در بازی بعدی، حداقل ۳ بار خودت شوت بزن."
         else:
             mission_text = "یک ماموریت ناشناخته."
-            
         text = f"🕵️‍♂️ **ماموریت مخفی مربی:**\n\n{mission_text}\n\n⚠️ اگر این ماموریت رو انجام ندی، اِگوت کم میشه و فشار روانی‌ات بالا میره!"
     except Exception as e:
-        text = f"⚠️ خطا در دریافت ماموریت. لطفاً بعداً تلاش کنید.\n(Error: {str(e)})"
-        
+        text = f"⚠️ خطا در دریافت ماموریت.\n(Error: {str(e)})"
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
@@ -398,12 +401,13 @@ async def text_match_action(message: types.Message):
     unlocked = get_unlocked_skills(message.from_user.id)
     valid_skills = [skill.lower() for skill in unlocked.keys()]
     
-    # ساکت موندن توی چت عادی
     if text not in valid_techniques and text not in valid_skills:
         return
         
     opponent_name = message.reply_to_message.from_user.first_name or "حریف"
-    result = attack_with_technique(message.from_user.id, text, opponent_name)
+    opponent_id = message.reply_to_message.from_user.id # آیدی عددی حریف
+    
+    result = attack_with_technique(message.from_user.id, text, opponent_name, opponent_id)
     
     if result.startswith("cooldown_"):
         remaining = result.split("_")[1]
