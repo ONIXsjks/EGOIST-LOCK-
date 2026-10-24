@@ -428,4 +428,179 @@ async def active_event_menu(callback: types.CallbackQuery):
 @dp.callback_query(F.data.startswith("fight_custom_"))
 async def fight_custom(callback: types.CallbackQuery):
     event_id = int(callback.data.split("_")[2])
-    result = fight
+    result = fight_custom_boss(callback.from_user.id, event_id)
+    if result == "no_team": return await callback.answer("❌ اول کارت بگیر!", show_alert=True)
+    if result == "no_event": return await callback.answer("❌ این ایونت منقضی شده!", show_alert=True)
+    if result['success']:
+        text = f"🎉 **پیروزی بر {result['boss_name']}!**\n-------------------------\nقدرت تیم تو: {result['player_power']:.1f}\nقدرت باس: {result['boss_power']}\n\n🖤 +{result['black']} سکه سیاه\n🪙 +{result['normal']} سکه عادی"
+    else:
+        text = f"💀 **شکست در برابر {result['boss_name']}!**\n-------------------------\nقدرت تیم تو: {result['player_power']:.1f}\nقدرت باس: {result['boss_power']}\n\nتیمت رو قوی‌تر کن و دوباره برگرد."
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚔️ FIGHT AGAIN", callback_data=f"fight_custom_{event_id}")], [InlineKeyboardButton(text="🔙 MAIN MENU", callback_data="back_to_main")]])
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    await callback.answer()
+
+class AdminStates(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_position = State()
+    waiting_for_technique = State()
+    waiting_for_power = State()
+    waiting_for_rarity = State()
+    waiting_for_image = State()
+    waiting_for_menu_image = State()
+    waiting_for_event_name = State()
+    waiting_for_event_power = State()
+    waiting_for_event_reward_black = State()
+    waiting_for_event_reward_normal = State()
+
+@dp.message(Command("admin"))
+async def admin_panel(message: types.Message):
+    if message.from_user.id != OWNER_ID: return await message.answer("⛔ دسترسی نداری.")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ ADD NEW CARD", callback_data="admin_add_card")],
+        [InlineKeyboardButton(text="🖼️ CHANGE MENU IMAGE", callback_data="admin_set_image")],
+        [InlineKeyboardButton(text="🔥 CREATE EVENT", callback_data="admin_create_event")],
+        [InlineKeyboardButton(text="🪙 GIVE COINS (Reply)", callback_data="admin_give_coins")],
+        [InlineKeyboardButton(text="🚫 BAN USER (Reply)", callback_data="admin_ban")],
+        [InlineKeyboardButton(text="🔙 CLOSE", callback_data="back_to_main")]
+    ])
+    await message.answer("👑 **پنل مالک**", reply_markup=kb, parse_mode="Markdown")
+
+@dp.callback_query(F.data == "admin_give_coins")
+async def admin_give_coins(callback: types.CallbackQuery):
+    if callback.from_user.id != OWNER_ID: return
+    await callback.message.edit_text("🪙 روی پیام کاربر مورد نظر **ریپلای** کن و بنویس:\n`give [مقدار]`\nمثال: `give 500`")
+
+@dp.callback_query(F.data == "admin_ban")
+async def admin_ban(callback: types.CallbackQuery):
+    if callback.from_user.id != OWNER_ID: return
+    await callback.message.edit_text("🚫 روی پیام کاربر مورد نظر **ریپلای** کن و بنویس:\n`ban`")
+
+@dp.callback_query(F.data == "admin_set_image")
+async def admin_set_image(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id != OWNER_ID: return
+    await state.set_state(AdminStates.waiting_for_menu_image)
+    await callback.message.edit_text("🖼️ **لطفاً عکس جدید منو رو ارسال کن:**")
+
+@dp.message(AdminStates.waiting_for_menu_image)
+async def process_menu_image(message: types.Message, state: FSMContext):
+    if message.from_user.id != OWNER_ID: return
+    if not message.photo: return await message.answer("⚠️ لطفاً یک عکس ارسال کن.")
+    file_id = message.photo[-1].file_id
+    save_setting("main_menu_image", file_id)
+    await message.answer("✅ **عکس منو با موفقیت تغییر کرد!**")
+    await state.clear()
+
+@dp.callback_query(F.data == "admin_create_event")
+async def admin_create_event(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id != OWNER_ID: return
+    await state.set_state(AdminStates.waiting_for_event_name)
+    await callback.message.edit_text("1️⃣ اسم باس جدید را وارد کن:")
+
+@dp.message(AdminStates.waiting_for_event_name)
+async def process_event_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text); await state.set_state(AdminStates.waiting_for_event_power)
+    await message.answer("2️⃣ قدرت باس (مثلاً 100):")
+
+@dp.message(AdminStates.waiting_for_event_power)
+async def process_event_power(message: types.Message, state: FSMContext):
+    if not message.text.isdigit(): return await message.answer("⚠️ عدد بده.")
+    await state.update_data(power=int(message.text)); await state.set_state(AdminStates.waiting_for_event_reward_black)
+    await message.answer("3️⃣ جایزه سکه سیاه (🖤):")
+
+@dp.message(AdminStates.waiting_for_event_reward_black)
+async def process_event_reward_black(message: types.Message, state: FSMContext):
+    if not message.text.isdigit(): return await message.answer("⚠️ عدد بده.")
+    await state.update_data(reward_black=int(message.text)); await state.set_state(AdminStates.waiting_for_event_reward_normal)
+    await message.answer("4️⃣ جایزه سکه عادی (🪙):")
+
+@dp.message(AdminStates.waiting_for_event_reward_normal)
+async def process_event_reward_normal(message: types.Message, state: FSMContext):
+    if not message.text.isdigit(): return await message.answer("⚠️ عدد بده.")
+    await state.update_data(reward_normal=int(message.text))
+    data = await state.get_data()
+    create_event(data['name'], data['power'], data['reward_black'], data['reward_normal'])
+    await message.answer(f"✅ **ایونت {data['name']} ساخته شد!**")
+    await state.clear()
+
+@dp.callback_query(F.data == "admin_add_card")
+async def admin_add_card(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id != OWNER_ID: return
+    await state.set_state(AdminStates.waiting_for_name)
+    await callback.message.edit_text("1️⃣ نام کاراکتر:")
+
+@dp.message(AdminStates.waiting_for_name)
+async def process_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text); await state.set_state(AdminStates.waiting_for_position)
+    await message.answer("2️⃣ پست (FW, MF, DF, GK):")
+
+@dp.message(AdminStates.waiting_for_position)
+async def process_position(message: types.Message, state: FSMContext):
+    await state.update_data(position=message.text.upper()); await state.set_state(AdminStates.waiting_for_technique)
+    await message.answer("3️⃣ تکنیک:")
+
+@dp.message(AdminStates.waiting_for_technique)
+async def process_tech(message: types.Message, state: FSMContext):
+    await state.update_data(technique=message.text); await state.set_state(AdminStates.waiting_for_power)
+    await message.answer("4️⃣ قدرت (1-100):")
+
+@dp.message(AdminStates.waiting_for_power)
+async def process_power(message: types.Message, state: FSMContext):
+    if not message.text.isdigit(): return await message.answer("⚠️ عدد بده.")
+    await state.update_data(base_power=int(message.text)); await state.set_state(AdminStates.waiting_for_rarity)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Rare", callback_data="rarity_Rare")], [InlineKeyboardButton(text="Epic", callback_data="rarity_Epic")], [InlineKeyboardButton(text="Legendary", callback_data="rarity_Legendary")]])
+    await message.answer("5️⃣ ریتی:", reply_markup=kb)
+
+@dp.callback_query(F.data.startswith("rarity_"), AdminStates.waiting_for_rarity)
+async def process_rarity(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(rarity=callback.data.split("_")[1]); await state.set_state(AdminStates.waiting_for_image)
+    await callback.message.edit_text("6️⃣ عکس بفرست (یا کلمه skip):")
+
+@dp.message(AdminStates.waiting_for_image)
+async def process_image(message: types.Message, state: FSMContext):
+    image_id = message.photo[-1].file_id if message.photo else None
+    if not image_id and message.text.lower() != "skip": return await message.answer("⚠️ عکس یا skip.")
+    data = await state.get_data()
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('INSERT INTO characters (name, position, technique, base_power, rarity, is_cursed, synergy_tag, image_url) VALUES (%s, %s, %s, %s, %s, FALSE, %s, %s)', (data['name'], data['position'], data['technique'], data['base_power'], data['rarity'], 'custom', image_id))
+    conn.commit(); cur.close(); conn.close()
+    await message.answer(f"✅ **{data['name']}** ساخته شد!")
+    await state.clear()
+
+@dp.message(F.text.startswith("give "))
+async def handle_give_coins(message: types.Message):
+    if message.from_user.id != OWNER_ID: return
+    if not message.reply_to_message: return await message.answer("⚠️ باید روی پیام کاربر ریپلای کنی!")
+    target_id = message.reply_to_message.from_user.id
+    try: amount = int(message.text.split()[1])
+    except: return await message.answer("⚠️ مقدار سکه رو درست وارد کن.")
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('UPDATE players SET normal_coins = normal_coins + %s WHERE user_id = %s', (amount, target_id))
+    conn.commit(); cur.close(); conn.close()
+    await message.answer(f"✅ {amount} سکه به کاربر داده شد!")
+
+@dp.message(F.text == "ban")
+async def handle_ban(message: types.Message):
+    if message.from_user.id != OWNER_ID: return
+    if not message.reply_to_message: return await message.answer("⚠️ باید روی پیام کاربر ریپلای کنی!")
+    target_id = message.reply_to_message.from_user.id
+    await message.answer(f"🚫 کاربر {target_id} بن شد!")
+
+@dp.message(F.text.startswith("fill_ego"))
+async def admin_fill_ego(message: types.Message):
+    if message.from_user.id != OWNER_ID: return
+    if not message.reply_to_message: return await message.answer("⚠️ باید روی پیام کاربر ریپلای کنی!")
+    target_id = message.reply_to_message.from_user.id
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('UPDATE players SET current_ego = 2000, last_ego_update = NOW() WHERE user_id = %s', (target_id,))
+    conn.commit(); cur.close(); conn.close()
+    await message.answer(f"✅ **اِگوی کاربر** با موفقیت پر شد!")
+
+async def main():
+    init_db()
+    seed_characters()
+    print("🚀 ربات روشن شد...")
+    threading.Thread(target=run_flask, daemon=True).start()
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
