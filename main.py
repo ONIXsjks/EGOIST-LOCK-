@@ -4,6 +4,7 @@ import json
 import random
 import os
 import threading
+from datetime import datetime
 from flask import Flask
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -162,7 +163,6 @@ async def burn_card(callback: types.CallbackQuery):
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
 
-# --- بخش قلمرو اگو با انتخاب کارت ---
 @dp.callback_query(F.data == "free_mode")
 async def free_mode(callback: types.CallbackQuery):
     team = get_player_team(callback.from_user.id)
@@ -189,9 +189,7 @@ async def show_char_skills(callback: types.CallbackQuery):
     else:
         tech = char['technique']
         skills = [(tech, 500, "normal"), ("POWER SHOT", 500, "normal"), ("QUICK DRIBBLE", 500, "normal"), ("DEFENSIVE STANCE", 800, "normal"), ("BEAST MODE", 5, "black"), ("ULTIMATE FINISH", 10, "black"), ("DOMAIN EXPANSION", 15, "black")]
-    
-    unlocked = get_unlocked_skills(callback.from_user.id) # دیکشنری اسم مهارت به نوع ارز
-    
+    unlocked = get_unlocked_skills(callback.from_user.id)
     kb_buttons = []
     for skill_name, cost, currency in skills:
         if skill_name in unlocked:
@@ -293,6 +291,13 @@ async def handle_match_action(callback: types.CallbackQuery):
     player = get_player(callback.from_user.id)
     state = player['current_match_state']
     
+    # چک کردن کول‌داون ۳ ثانیه‌ای
+    if player.get('last_match_action_at'):
+        time_passed = datetime.now(player['last_match_action_at'].tzinfo) - player['last_match_action_at']
+        if time_passed.total_seconds() < 3:
+            remaining = 3 - int(time_passed.total_seconds())
+            return await callback.answer(f"⏳ صبر کن! {remaining} ثانیه دیگه.", show_alert=True)
+    
     synergy = check_synergy(callback.from_user.id)
     action_text = f"🔥 **{synergy['name']}** فعال شد!\n" if (synergy and action == "shoot") else ""
     
@@ -303,7 +308,7 @@ async def handle_match_action(callback: types.CallbackQuery):
         state['turn'] += 1
         is_finished = state['turn'] > state['max_turns']
         conn = get_db_connection(); cur = conn.cursor()
-        cur.execute('UPDATE players SET current_match_state = %s WHERE user_id = %s', (json.dumps(state), callback.from_user.id))
+        cur.execute('UPDATE players SET current_match_state = %s, last_match_action_at = %s WHERE user_id = %s', (json.dumps(state), datetime.now(), callback.from_user.id))
         conn.commit(); cur.close(); conn.close()
         if not is_finished:
             banner += "توپ دوباره به پای توست."
@@ -323,7 +328,7 @@ async def handle_match_action(callback: types.CallbackQuery):
     is_finished = state['turn'] > state['max_turns']
     
     conn = get_db_connection(); cur = conn.cursor()
-    cur.execute('UPDATE players SET current_match_state = %s WHERE user_id = %s', (json.dumps(state), callback.from_user.id))
+    cur.execute('UPDATE players SET current_match_state = %s, last_match_action_at = %s WHERE user_id = %s', (json.dumps(state), datetime.now(), callback.from_user.id))
     conn.commit(); cur.close(); conn.close()
     
     banner = f"🏟️ **{state['type'].upper()}**\n⏱️ نوبت {state['turn']}/{state['max_turns']}\n🔵 {state['score_player']} - {state['score_npc']} 🔴\n-------------------------\n{action_text}\n{duel_result['text']}\n\n"
@@ -352,7 +357,6 @@ async def handle_match_action(callback: types.CallbackQuery):
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚔️ PLAY AGAIN", callback_data="enter_match")], [InlineKeyboardButton(text="🔙 MAIN MENU", callback_data="back_to_main")]])
     await callback.message.edit_text(banner, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
-# --- بخش ریپلای مستقل و فانتزی ---
 @dp.message(F.text)
 async def text_match_action(message: types.Message):
     if message.text.startswith("/"): return
@@ -361,7 +365,10 @@ async def text_match_action(message: types.Message):
     if not player: return
     opponent_name = message.reply_to_message.from_user.first_name or "حریف"
     result = attack_with_technique(message.from_user.id, message.text.strip(), opponent_name)
-    if result == "ego_broken":
+    if result.startswith("cooldown_"):
+        remaining = result.split("_")[1]
+        return await message.answer(f"⏳ **صبر کن!**\nتا **{remaining}** ثانیه دیگه نمی‌تونی از این تکنیک استفاده کنی.")
+    elif result == "ego_broken":
         return await message.answer("💀 **اِگوی تو شکسته شده!**\nباید ۱۵ دقیقه صبر کنی تا اِگوت دوباره پر بشه. تا اون موقع نمی‌تونی حمله کنی.")
     elif result == "no_technique":
         return await message.answer("⚠️ **این تکنیک توی تیم تو نیست!**\nباید اسم دقیق تکنیک یکی از کارت‌هات رو بنویسی.")
@@ -370,7 +377,6 @@ async def text_match_action(message: types.Message):
     else:
         await message.reply(result, parse_mode="Markdown")
 
-# --- ایونت ---
 @dp.callback_query(F.data == "active_event_menu")
 async def active_event_menu(callback: types.CallbackQuery):
     event = get_active_event()
@@ -395,7 +401,6 @@ async def fight_custom(callback: types.CallbackQuery):
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
 
-# --- پنل مالک ---
 class AdminStates(StatesGroup):
     waiting_for_name = State()
     waiting_for_position = State()
