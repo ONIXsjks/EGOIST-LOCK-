@@ -1,14 +1,13 @@
 import json
 import random
 import os
-from supadns import create_smart_client as create_client
-from supabase import Client
+from supabase import create_client, Client
 
-# 🔴 کلیدها از تنظیمات Render (Environment Variables) خوانده می‌شوند
-SUPABASE_URL = os.getenv("SUPABASE_URL")
+# 🔴 آدرس Pooler برای حل مشکل DNS در Render (پشتیبانی از IPv4)
+SUPABASE_URL = "https://aws-0-ap-south-1.pooler.supabase.com"
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# اتصال به دیتابیس با استفاده از supadns برای حل مشکل DNS در Render
+# اتصال به دیتابیس
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def get_player(user_id):
@@ -22,7 +21,7 @@ def create_player(user_id, username):
         supabase.table('players').insert(data).execute()
 
 def init_db():
-    print("✅ اتصال به Supabase برقرار است.")
+    print("✅ اتصال به Supabase (Pooler) برقرار است.")
 
 def perform_gacha(user_id, cost=100):
     player = get_player(user_id)
