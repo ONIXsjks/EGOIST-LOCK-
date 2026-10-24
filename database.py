@@ -15,16 +15,7 @@ def init_db():
     cur.execute('''CREATE TABLE IF NOT EXISTS player_damage (user_id BIGINT, char_id INTEGER, damage_received INTEGER DEFAULT 0, PRIMARY KEY (user_id, char_id))''')
     cur.execute('''CREATE TABLE IF NOT EXISTS player_skills (user_id BIGINT, skill_name TEXT, is_unlocked BOOLEAN DEFAULT FALSE, PRIMARY KEY (user_id, skill_name))''')
     cur.execute('''CREATE TABLE IF NOT EXISTS bot_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT)''')
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS active_events (
-            event_id SERIAL PRIMARY KEY,
-            boss_name TEXT,
-            boss_power INTEGER,
-            reward_black INTEGER,
-            reward_normal INTEGER,
-            is_active BOOLEAN DEFAULT TRUE
-        )
-    ''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS active_events (event_id SERIAL PRIMARY KEY, boss_name TEXT, boss_power INTEGER, reward_black INTEGER, reward_normal INTEGER, is_active BOOLEAN DEFAULT TRUE)''')
     conn.commit(); cur.close(); conn.close()
 
 def get_player(user_id):
@@ -63,6 +54,27 @@ def get_unlocked_skills(user_id):
     skills = [row['skill_name'] for row in cur.fetchall()]
     cur.close(); conn.close()
     return skills
+
+def get_player_damage(user_id, char_id):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT damage_received FROM player_damage WHERE user_id = %s AND char_id = %s', (user_id, char_id))
+    res = cur.fetchone(); cur.close(); conn.close()
+    return res['damage_received'] if res else 0
+
+def use_wild_card(user_id, char_id_to_burn):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT team_json FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    team = player['team_json'] if player['team_json'] else []
+    if char_id_to_burn not in team: conn.close(); return "not_in_team"
+    team.remove(char_id_to_burn)
+    cur.execute('SELECT * FROM characters WHERE rarity = "Legendary" ORDER BY RANDOM() LIMIT 1')
+    legendary = cur.fetchone()
+    if not legendary: conn.close(); return "no_legendary"
+    team.append(legendary['char_id'])
+    cur.execute('UPDATE players SET team_json = %s WHERE user_id = %s', (json.dumps(team), user_id))
+    conn.commit(); cur.close(); conn.close()
+    return dict(legendary)
 def resolve_duel(user_id, player_char_name, player_technique, player_power, npc_name, npc_power, action):
     base_damage = player_power - (npc_power * 0.8)
     if action == "shoot": damage_multiplier = 1.5; action_text = "شوت"
@@ -107,6 +119,26 @@ def start_team_battle(user_id):
     cur.execute('UPDATE players SET current_match_state = %s WHERE user_id = %s', (json.dumps(match_state), user_id))
     conn.commit(); cur.close(); conn.close()
     return match_state
+
+def enter_shadow_league(user_id):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('UPDATE players SET in_shadow_league = TRUE, shadow_wins = 0, sanity = 50 WHERE user_id = %s', (user_id,))
+    conn.commit(); cur.close(); conn.close()
+
+def shadow_league_result(user_id, is_win):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT shadow_wins, sanity FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if is_win:
+        new_wins = player['shadow_wins'] + 1
+        if new_wins >= 3:
+            cur.execute('UPDATE players SET in_shadow_league = FALSE, shadow_wins = 0, ego = 100 WHERE user_id = %s', (user_id,))
+            conn.commit(); cur.close(); conn.close(); return "freed"
+        cur.execute('UPDATE players SET shadow_wins = %s WHERE user_id = %s', (new_wins, user_id))
+        conn.commit(); cur.close(); conn.close(); return f"win_{new_wins}"
+    else:
+        cur.execute('UPDATE players SET shadow_wins = 0, sanity = %s WHERE user_id = %s', (max(0, player['sanity'] - 40), user_id))
+        conn.commit(); cur.close(); conn.close(); return "lose"
 
 def create_event(boss_name, boss_power, reward_black, reward_normal):
     conn = get_db_connection(); cur = conn.cursor()
@@ -224,11 +256,7 @@ def get_player_rank(user_id):
     cur.execute('SELECT COUNT(*) + 1 FROM players WHERE level > %s OR (level = %s AND xp > %s)', (player['level'], player['level'], player['xp']))
     rank = cur.fetchone()['count']; cur.close(); conn.close(); return rank
 
-# توابع کمکی
 def check_synergy(user_id): return None 
 def check_teammate_jealousy(user_id): return "no_team"
 def generate_coach_mission(user_id): return {"text": "ماموریتی وجود ندارد."}
 def check_coach_mission(user_id, match_result): return "no_mission"
-def enter_shadow_league(user_id): pass
-def shadow_league_result(user_id, is_win): return "lose"
-def use_wild_card(user_id, char_id_to_burn): return "not_in_team"
