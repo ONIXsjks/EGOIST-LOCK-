@@ -22,7 +22,10 @@ from database import (
     attack_with_technique, check_ego_recovery,
     upgrade_card_duplicate, buy_from_black_market, check_flow_state,
     add_training_point, upgrade_card_stat, add_skin_to_inventory, set_active_skin,
-    set_global_event, get_global_event, start_bet_duel, resolve_bet_duel, admin_give_coins
+    set_global_event, get_global_event, start_bet_duel, resolve_bet_duel, admin_give_coins,
+    init_new_systems, check_dream_team, create_trade_offer, accept_trade_offer,
+    ascend_card, create_legendary_boss, get_legendary_boss, fight_legendary_boss,
+    add_achievement, get_achievements, update_achievement_progress
 )
 from seed_data import seed_characters
 
@@ -41,17 +44,12 @@ def run_flask():
     app.run(host='0.0.0.0', port=port)
 
 def main_menu_keyboard():
+    # ✅ منوی ۳ ردیفی و مرتب
     kb = [
-        [InlineKeyboardButton(text="🔥 ACTIVE EVENT", callback_data="active_event_menu")],
-        [InlineKeyboardButton(text="🎰 GACHA", callback_data="gacha_shop")],
-        [InlineKeyboardButton(text="🧠 MANAGE TEAM", callback_data="manage_team")],
-        [InlineKeyboardButton(text="🌌 EGO DOMAIN", callback_data="free_mode")],
-        [InlineKeyboardButton(text="🕵️‍♂️ COACH AGENDA", callback_data="coach_agenda")],
-        [InlineKeyboardButton(text="🎯 SELECT CHARACTER", callback_data="select_main_char")],
-        [InlineKeyboardButton(text="🏋️ TRAINING", callback_data="training_menu")],
-        [InlineKeyboardButton(text="🖤 BLACK MARKET", callback_data="black_market")],
-        [InlineKeyboardButton(text="🏆 TOP PLAYERS", callback_data="leaderboard")],
-        [InlineKeyboardButton(text="❓ HELP", callback_data="help_menu")],
+        [InlineKeyboardButton(text="🔥 ACTIVE EVENT", callback_data="active_event_menu"), InlineKeyboardButton(text="🎰 GACHA", callback_data="gacha_shop"), InlineKeyboardButton(text="🧠 MANAGE TEAM", callback_data="manage_team")],
+        [InlineKeyboardButton(text="🌌 EGO DOMAIN", callback_data="free_mode"), InlineKeyboardButton(text="🕵️‍♂️ COACH AGENDA", callback_data="coach_agenda"), InlineKeyboardButton(text="🎯 SELECT CHARACTER", callback_data="select_main_char")],
+        [InlineKeyboardButton(text="🏋️ TRAINING", callback_data="training_menu"), InlineKeyboardButton(text="🖤 BLACK MARKET", callback_data="black_market"), InlineKeyboardButton(text="🏆 LEADERBOARD", callback_data="leaderboard")],
+        [InlineKeyboardButton(text="🏅 ACHIEVEMENTS", callback_data="achievements_menu"), InlineKeyboardButton(text="🔄 TRADE CARDS", callback_data="trade_menu"), InlineKeyboardButton(text="❓ HELP", callback_data="help_menu")],
         [InlineKeyboardButton(text="📊 MY PROFILE", callback_data="my_profile")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
@@ -74,6 +72,11 @@ async def safe_edit_message(callback: types.CallbackQuery, text: str, reply_mark
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
+    try:
+        init_new_systems() # اجرای ساخت جدول‌های جدید
+    except Exception as e:
+        print(f"DB Error: {e}")
+
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
     player = get_player(user_id)
@@ -99,45 +102,19 @@ async def help_menu(callback: types.CallbackQuery):
     text = (
         "❓ **راهنمای بازی بلو لاک**\n"
         "-------------------------\n"
-        "🔹 **چطور حمله کنم؟**\n"
-        "روی پیام حریف **ریپلای** کن و اسم تکنیک کارتت رو بنویس (مثلاً `Direct Shot`).\n\n"
-        "🔹 **چطور سکه بگیرم؟**\n"
-        "با تمرین کردن، بردن باس‌ها و مبارزات.\n\n"
-        "🔹 **سکه سیاه چیه؟**\n"
-        "سکه کمیاب که فقط از ایونت‌ها و باس‌ها به دست میاد و برای خریدهای خاص توی بازار سیاه استفاده میشه.\n\n"
-        "🔹 **چطور کارت بگیرم؟**\n"
-        "از بخش GACHA با ۱۰۰ سکه.\n\n"
-        "🔹 **سیستم فلو چیه؟**\n"
-        "وقتی اگوی حریف صفر بشه، وارد حالت فلو میشه و دمیجش دوبرابر میشه!\n\n"
-        "🔹 **دوئل شرطی چیه؟**\n"
-        "روی پیام حریف ریپلای کن و بنویس `چالش` تا هر دو ۵۰ سکه شرط ببندید."
+        "🔹 **حمله:** روی پیام حریف ریپلای کن و اسم تکنیکت رو بنویس (مثلاً `Direct Shot`).\n"
+        "🔹 **دوئل شرطی:** روی پیام حریف ریپلای کن و بنویس `چالش` (شرط ۵۰ سکه).\n"
+        "🔹 **ترید:** روی پیام حریف ریپلای کن و بنویس `ترید` (کارت‌ها معاوضه میشن).\n"
+        "🔹 **نبرد دوستانه:** روی پیام حریف ریپلای کن و بنویس `نبرد دوستانه`.\n"
+        "🔹 **باس افسانه‌ای:** هر ۲۴ ساعت یک بار، با نوشتن `باس افسانه‌ای` ظاهر میشه.\n"
+        "🔹 **تیم رویایی:** ۳ کارت از یک تیم خاص توی ترکیب بذار تا بونوس دمیج بگیری.\n"
+        "🔹 **لول آپ کارت:** از قلمرو اگو، کارت‌های اضافی رو بسوزون تا رده کارتت بالا بره.\n"
+        "🔹 **دستاوردها:** با انجام کارهای خاص، نشان و جایزه بگیر.\n"
+        "🔹 **سکه سیاه:** از ایونت‌ها و باس‌ها به دست میاد."
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
     await safe_edit_message(callback, text, reply_markup=kb)
     await callback.answer()
-
-@dp.callback_query(F.data == "leaderboard")
-async def show_leaderboard(callback: types.CallbackQuery):
-    players = get_leaderboard(10)
-    if not players:
-        text = "🏆 **تاپ پلیرها**\n\nهنوز هیچ بازیکنی در لیست نیست!"
-    else:
-        text = "🏆 **۱۰ بازیکن برتر بلو لاک**\n-------------------------\n"
-        for i, p in enumerate(players, 1):
-            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-            username = p.get('username', 'Unknown')
-            level = p.get('level', 1)
-            xp = p.get('xp', 0)
-            text += f"{medal} **{username}** | Lv.{level} | XP: {xp}\n"
-        
-        my_rank = get_player_rank(callback.from_user.id)
-        if my_rank:
-            text += f"\n-------------------------\n📍 رتبه شما: **{my_rank}**"
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
-    await safe_edit_message(callback, text, reply_markup=kb)
-    await callback.answer()
-
 @dp.callback_query(F.data == "my_profile")
 async def show_profile(callback: types.CallbackQuery):
     try:
@@ -169,6 +146,38 @@ async def show_profile(callback: types.CallbackQuery):
     except Exception as e:
         await safe_edit_message(callback, f"⚠️ خطا در دریافت پروفایل.\n(Error: {str(e)})")
     await callback.answer()
+
+@dp.callback_query(F.data == "achievements_menu")
+async def achievements_menu(callback: types.CallbackQuery):
+    achs = get_achievements(callback.from_user.id)
+    text = "🏅 **دستاوردهای شما**\n-------------------------\n"
+    if not achs:
+        text += "هنوز هیچ دستاوردی ندارید. بازی کنید تا باز شوند!"
+    else:
+        for a in achs:
+            status = "✅" if a['completed'] else f"⏳ ({a['progress']}/{a['target']})"
+            text += f"{a['icon']} {a['name']}: {status}\n"
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
+    await safe_edit_message(callback, text, reply_markup=kb)
+    await callback.answer()
+
+@dp.callback_query(F.data == "leaderboard")
+async def show_leaderboard(callback: types.CallbackQuery):
+    players = get_leaderboard(10)
+    if not players:
+        text = "🏆 **تاپ پلیرها**\n\nهنوز هیچ بازیکنی در لیست نیست!"
+    else:
+        text = "🏆 **۱۰ بازیکن برتر بلو لاک**\n-------------------------\n"
+        for i, p in enumerate(players, 1):
+            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+            text += f"{medal} **{p.get('username', 'Unknown')}** | Lv.{p.get('level', 1)} | XP: {p.get('xp', 0)}\n"
+        my_rank = get_player_rank(callback.from_user.id)
+        if my_rank: text += f"\n-------------------------\n📍 رتبه شما: **{my_rank}**"
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
+    await safe_edit_message(callback, text, reply_markup=kb)
+    await callback.answer()
+
 @dp.callback_query(F.data == "select_main_char")
 async def select_main_char(callback: types.CallbackQuery):
     team = get_player_team(callback.from_user.id)
@@ -201,6 +210,9 @@ async def roll_gacha(callback: types.CallbackQuery):
     if result == "no_coins": return await callback.answer("❌ سکه کافی نداری!", show_alert=True)
     if result == "no_chars": return await callback.answer("❌ خطا: کارت‌ها در دیتابیس نیستند.", show_alert=True)
     
+    try: update_achievement_progress(callback.from_user.id, "gacha_rolls")
+    except: pass
+    
     team = get_player_team(callback.from_user.id)
     duplicate = next((c for c in team if c['char_id'] == result['char_id']), None)
     if duplicate:
@@ -217,8 +229,7 @@ async def roll_gacha(callback: types.CallbackQuery):
     if result['is_cursed']: caption += "\n⚠️ **نفرین‌شده!**"
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎲 ROLL AGAIN", callback_data="roll_gacha")], [InlineKeyboardButton(text="🔙 BACK", callback_data="gacha_shop")]])
     if result.get('image_url'):
-        try:
-            await callback.message.delete()
+        try: await callback.message.delete()
         except: pass
         await callback.message.answer_photo(photo=result['image_url'], caption=caption, reply_markup=kb, parse_mode="Markdown")
     else:
@@ -229,10 +240,8 @@ async def roll_gacha(callback: types.CallbackQuery):
 async def upgrade_card(callback: types.CallbackQuery):
     char_id = int(callback.data.split("_")[2])
     result = upgrade_card_duplicate(callback.from_user.id, char_id)
-    if result == "success":
-        await callback.answer("✅ کارت با موفقیت آپگرید شد! (قدرت +5)", show_alert=True)
-    else:
-        await callback.answer("❌ خطا در آپگرید کارت!", show_alert=True)
+    if result == "success": await callback.answer("✅ کارت با موفقیت آپگرید شد! (قدرت +5)", show_alert=True)
+    else: await callback.answer("❌ خطا در آپگرید کارت!", show_alert=True)
     await gacha_shop(callback)
 
 @dp.callback_query(F.data == "manage_team")
@@ -242,9 +251,15 @@ async def manage_team(callback: types.CallbackQuery):
         text = "🧠 **مدیریت تیم**\n\n❌ تیم خالیه!"
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎰 GACHA", callback_data="gacha_shop")], [InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
         return await safe_edit_message(callback, text, reply_markup=kb)
+    
+    try: dream_bonus = check_dream_team(callback.from_user.id)
+    except: dream_bonus = None
+        
+    synergy_text = f"\n\n🔥 **تیم رویایی فعال:** {dream_bonus['name']} (+{dream_bonus['bonus']}٪)" if dream_bonus else ""
+    
     kb_buttons = [[InlineKeyboardButton(text=f"{'🔴' if c['rarity']=='Legendary' else '🟣' if c['rarity']=='Epic' else '🔵'} {c['name']} {'⚠️' if c['is_cursed'] else ''}", callback_data=f"view_char_{c['char_id']}")] for c in team]
     kb_buttons.append([InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")])
-    await safe_edit_message(callback, "🧠 **لیست کارت‌های تو:**", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
+    await safe_edit_message(callback, f"🧠 **لیست کارت‌های تو:**{synergy_text}", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("view_char_"))
@@ -282,6 +297,11 @@ async def show_char_skills(callback: types.CallbackQuery):
     if not char: return await callback.answer("پیدا نشد!")
     char_name = char['name']
     text = f"🌌 **قلمرو اگو - {char_name}**\n-------------------------\nهر مهارت با سکه قابل باز کردنه. مهارت‌های پایین‌تر نیاز به سکه سیاه دارن!\n\n"
+    
+    ascend_text = ""
+    if char['rarity'] == 'Rare': ascend_text = "\n🔼 **ارتقا به Epic:** نیازمند ۳ کارت Rare + ۳۰۰ سکه"
+    elif char['rarity'] == 'Epic': ascend_text = "\n🔼 **ارتقا به Legendary:** نیازمند ۳ کارت Epic + ۵۰۰ سکه"
+    
     skills = []
     if char_name == "Yoichi Isagi":
         skills = [("DIRECT SHOT", 500, "normal"), ("METAVISION", 500, "normal"), ("OFF THE BALL", 500, "normal"), ("SPATIAL AWARENESS", 800, "normal"), ("PUZZLE SOLVING", 5, "black"), ("PROTAGONIST SYNDROME", 10, "black"), ("FLOW STATE", 15, "black")]
@@ -300,9 +320,23 @@ async def show_char_skills(callback: types.CallbackQuery):
                 kb_buttons.append([InlineKeyboardButton(text=f"UNLOCK: {skill_name} · {cost} 🪙", callback_data=f"unlock_{skill_name.replace(' ', '_')}_{cost}_normal")])
             else:
                 kb_buttons.append([InlineKeyboardButton(text=f"🔒 UNLOCK: {skill_name} · {cost} 🖤", callback_data=f"unlock_{skill_name.replace(' ', '_')}_{cost}_black")])
+    
+    if ascend_text:
+        kb_buttons.append([InlineKeyboardButton(text="🔼 ASCEND CARD", callback_data=f"ascend_{char_id}")])
+        
     kb_buttons.append([InlineKeyboardButton(text="🔙 بازگشت به لیست کارت‌ها", callback_data="free_mode")])
-    await safe_edit_message(callback, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
+    await safe_edit_message(callback, text + ascend_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
     await callback.answer()
+
+@dp.callback_query(F.data.startswith("ascend_"))
+async def do_ascend(callback: types.CallbackQuery):
+    char_id = int(callback.data.split("_")[1])
+    res = ascend_card(callback.from_user.id, char_id)
+    if res == "success": await callback.answer("🎉 کارت با موفقیت ارتقا یافت!", show_alert=True)
+    elif res == "no_cards": await callback.answer("❌ کارت کافی برای سوزوندن نداری!", show_alert=True)
+    elif res == "no_coins": await callback.answer("❌ سکه کافی نداری!", show_alert=True)
+    else: await callback.answer("❌ خطا!", show_alert=True)
+    await show_char_skills(callback)
 
 @dp.callback_query(F.data.startswith("unlock_"))
 async def unlock_skill(callback: types.CallbackQuery):
@@ -324,16 +358,10 @@ async def unlock_skill(callback: types.CallbackQuery):
     await callback.answer("✅ مهارت باز شد!", show_alert=True)
     await show_char_skills(callback)
 
-# --- بخش تمرین اختصاصی ---
 @dp.callback_query(F.data == "training_menu")
 async def training_menu(callback: types.CallbackQuery):
     player = get_player(callback.from_user.id)
-    text = (f"🏋️ **تمرین**\n-------------------------\n"
-            f"😰 خستگی: {player['fatigue']}٪\n"
-            f"😰 فشار: {player['pressure']}٪\n"
-            f"🧘 روان: {player['sanity']}٪\n"
-            f"🪙 سکه: {player['normal_coins']}\n"
-            f"🎯 نقاط تمرین: {player.get('training_points', 0)}")
+    text = (f"🏋️ **تمرین**\n-------------------------\n😰 خستگی: {player['fatigue']}٪\n😰 فشار: {player['pressure']}٪\n🧘 روان: {player['sanity']}٪\n🪙 سکه: {player['normal_coins']}\n🎯 نقاط تمرین: {player.get('training_points', 0)}")
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛌 REST (30 Coins)", callback_data="action_rest")], 
         [InlineKeyboardButton(text="🏃 TRAIN (50 Coins)", callback_data="action_train")],
@@ -356,6 +384,8 @@ async def action_train(callback: types.CallbackQuery):
     if res == "too_tired": return await callback.answer("❌ خیلی خسته‌ای!", show_alert=True)
     msg = f"🏃 +{res['xp']} XP و +۱ نقطه تمرین!"
     if res['level_up']: msg += f"\n🌟 لول {res['new_level']}!"
+    try: update_achievement_progress(callback.from_user.id, "train_count")
+    except: pass
     await callback.answer(msg, show_alert=True)
     await training_menu(callback)
 
@@ -373,8 +403,8 @@ async def sp_train_char(callback: types.CallbackQuery):
     char_id = int(callback.data.split("_")[2])
     player = get_player(callback.from_user.id)
     if player.get('training_points', 0) <= 0:
-        return await callback.answer("❌ نقطه تمرین نداری! برای گرفتن نقطه، تمرین عمومی کن.", show_alert=True)
-    text = "🎯 **نقطه تمرین رو کجا خرج کنم؟**\n(هر بار خرج کردن ۱ نقطه)"
+        return await callback.answer("❌ نقطه تمرین نداری!", show_alert=True)
+    text = "🎯 **نقطه تمرین رو کجا خرج کنم؟**\n(هر بار ۱ نقطه)"
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💥 افزایش دمیج (+10)", callback_data=f"up_dmg_{char_id}")],
         [InlineKeyboardButton(text="⏳ کاهش کول‌داون (-2s)", callback_data=f"up_cd_{char_id}")],
@@ -399,7 +429,6 @@ async def up_cd(callback: types.CallbackQuery):
     else: await callback.answer("❌ خطا!", show_alert=True)
     await special_training(callback)
 
-# --- بازار سیاه ---
 @dp.callback_query(F.data == "black_market")
 async def black_market(callback: types.CallbackQuery):
     player = get_player(callback.from_user.id)
@@ -476,7 +505,6 @@ async def admin_ban(callback: types.CallbackQuery):
     if callback.from_user.id != OWNER_ID: return
     await safe_edit_message(callback, "🚫 روی پیام کاربر مورد نظر **ریپلای** کن و بنویس:\n`ban`")
 
-# --- ادمین: رویدادهای دراماتیک ---
 @dp.callback_query(F.data == "admin_set_event")
 async def admin_set_event(callback: types.CallbackQuery):
     if callback.from_user.id != OWNER_ID: return
@@ -501,7 +529,6 @@ async def event_anger(callback: types.CallbackQuery):
     conn.commit(); cur.close(); conn.close()
     await callback.answer("✅ فشار همه بازیکنا ۲۰ واحد افزایش یافت!", show_alert=True)
 
-# --- ادمین: اسکین ---
 @dp.callback_query(F.data == "admin_add_skin")
 async def admin_add_skin(callback: types.CallbackQuery, state: FSMContext):
     if callback.from_user.id != OWNER_ID: return
@@ -529,7 +556,6 @@ async def process_skin_image(message: types.Message, state: FSMContext):
     await message.answer("✅ اسکین ساخته شد و به اینونتوری شما اضافه شد!")
     await state.clear()
 
-# --- ادامه ادمین: عکس، کارت، ایونت ---
 @dp.callback_query(F.data == "admin_set_image")
 async def admin_set_image(callback: types.CallbackQuery, state: FSMContext):
     if callback.from_user.id != OWNER_ID: return
@@ -649,7 +675,6 @@ async def process_image(message: types.Message, state: FSMContext):
     conn.commit(); cur.close(); conn.close()
     await message.answer(f"✅ **{data['name']}** ساخته شد!")
     await state.clear()
-
 @dp.callback_query(F.data == "coach_agenda")
 async def coach_agenda(callback: types.CallbackQuery):
     try:
@@ -681,6 +706,8 @@ async def fight_custom(callback: types.CallbackQuery):
     if result == "no_team": return await callback.answer("❌ اول کارت بگیر!", show_alert=True)
     if result == "no_event": return await callback.answer("❌ این ایونت منقضی شده!", show_alert=True)
     if result['success']:
+        try: update_achievement_progress(callback.from_user.id, "boss_kills")
+        except: pass
         text = f"🎉 **پیروزی بر {result['boss_name']}!**\n-------------------------\nقدرت تیم تو: {result['player_power']:.1f}\nقدرت باس: {result['boss_power']}\n\n🖤 +{result['black']} سکه سیاه\n🪙 +{result['normal']} سکه عادی"
     else:
         text = f"💀 **شکست در برابر {result['boss_name']}!**\n-------------------------\nقدرت تیم تو: {result['player_power']:.1f}\nقدرت باس: {result['boss_power']}\n\nتیمت رو قوی‌تر کن و دوباره برگرد."
@@ -688,50 +715,65 @@ async def fight_custom(callback: types.CallbackQuery):
     await safe_edit_message(callback, text, reply_markup=kb)
     await callback.answer()
 
+@dp.callback_query(F.data == "trade_menu")
+async def trade_menu(callback: types.CallbackQuery):
+    text = "🔄 **سیستم ترید**\n\nبرای شروع ترید، روی پیام کاربر مورد نظر **ریپلای** کن و بنویس:\n`ترید`"
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
+    await safe_edit_message(callback, text, reply_markup=kb)
+    await callback.answer()
+
 @dp.message(F.text)
-async def text_match_action(message: types.Message):
+async def text_match_action(message: types.Message, state: FSMContext):
     if message.text.startswith("/"): return
     if not message.reply_to_message: return
     if message.content_type != "text": return
     
-    if message.text.strip().lower() == "چالش":
+    text_lower = message.text.strip().lower()
+    opponent_name = message.reply_to_message.from_user.first_name or "حریف"
+    opponent_id = message.reply_to_message.from_user.id
+    
+    if text_lower == "چالش":
         player = get_player(message.from_user.id)
         if not player: return
-        target_id = message.reply_to_message.from_user.id
-        target = get_player(target_id)
+        target = get_player(opponent_id)
         if not target: return
         bet_amount = 50
-        res = start_bet_duel(message.from_user.id, target_id, bet_amount)
+        res = start_bet_duel(message.from_user.id, opponent_id, bet_amount)
         if res == "no_coins":
             return await message.reply("❌ یکی از طرفین سکه کافی برای شرط‌بندی ۵۰ سکه‌ای رو نداره!")
-        text = (f"⚔️ **دوئل شرطی!** ⚔️\n\n"
-                f"**{message.from_user.first_name}** و **{message.reply_to_message.from_user.first_name}**\n"
-                f"هر کدوم ۵۰ سکه گذاشتن وسط!\n\n"
-                f"🏆 **برنده ۱۰۰ سکه می‌بره!**\n"
-                f"⏳ برای شروع، یکی از شما تکنیک بزنه و اگوی طرف مقابل رو صفر کنه!")
+        text = (f"⚔️ **دوئل شرطی!** ⚔️\n\n**{message.from_user.first_name}** و **{opponent_name}**\nهر کدوم ۵۰ سکه گذاشتن وسط!\n\n🏆 **برنده ۱۰۰ سکه می‌بره!**\n⏳ برای شروع، یکی از شما تکنیک بزنه!")
         await message.reply(text)
+        return
+        
+    if text_lower == "نبرد دوستانه":
+        text = (f"🤝 **نبرد دوستانه!** 🤝\n\n**{message.from_user.first_name}** و **{opponent_name}**\nاین یک نبرد تمرینی است. سکه‌ای رد و بدل نمیشه.\nفقط برای اثبات قدرت! 💪")
+        await message.reply(text)
+        return
+
+    if text_lower == "ترید":
+        await message.answer("🔄 سیستم ترید فعلا در حال توسعه است. (به زودی کارت‌ها معاوضه میشن!)")
         return
         
     player = get_player(message.from_user.id)
     if not player: return
-    text = message.text.strip().lower()
     team = get_player_team(message.from_user.id)
     if not team: return
     valid_techniques = [char['technique'].lower() for char in team]
     unlocked = get_unlocked_skills(message.from_user.id)
     valid_skills = [skill.lower() for skill in unlocked.keys()]
-    if text not in valid_techniques and text not in valid_skills: return
-    opponent_name = message.reply_to_message.from_user.first_name or "حریف"
-    opponent_id = message.reply_to_message.from_user.id
-    result = attack_with_technique(message.from_user.id, text, opponent_name, opponent_id)
+    if text_lower not in valid_techniques and text_lower not in valid_skills: return
+    
+    result = attack_with_technique(message.from_user.id, text_lower, opponent_name, opponent_id)
     if result.startswith("cooldown_"):
         remaining = result.split("_")[1]
         return await message.answer(f"⏳ **صبر کن!**\nتا **{remaining}** ثانیه دیگه نمی‌تونی از این تکنیک استفاده کنی.")
     elif result == "ego_broken":
-        return await message.answer("💀 **اِگوی تو شکسته شده!**\nباید ۱۵ دقیقه صبر کنی تا اِگوت دوباره پر بشه. تا اون موقع نمی‌تونی حمله کنی.")
+        return await message.answer("💀 **اِگوی تو شکسته شده!**\nباید ۱۵ دقیقه صبر کنی تا اِگوت دوباره پر بشه.")
     elif result == "no_team":
         return await message.answer("❌ اول باید از گاچا کارت بگیری!")
     elif result != "no_technique":
+        try: update_achievement_progress(message.from_user.id, "attack_count")
+        except: pass
         await message.reply(result, parse_mode="Markdown")
 
 @dp.message(F.text.startswith("give "))
