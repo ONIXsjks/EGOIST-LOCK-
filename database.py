@@ -13,14 +13,15 @@ def init_db():
     print("✅ اتصال به دیتابیس برقرار است.")
     conn = get_db_connection(); cur = conn.cursor()
     
-    # ساخت جدول بازیکن‌ها با تمام ستون‌های جدید
+    # ساخت جدول بازیکن‌ها با تمام ستون‌های جدید (شامل main_char_id)
     cur.execute('''CREATE TABLE IF NOT EXISTS players (
         user_id BIGINT PRIMARY KEY, username TEXT, level INTEGER DEFAULT 1, xp INTEGER DEFAULT 0,
         ego INTEGER DEFAULT 100, sanity INTEGER DEFAULT 100, fatigue INTEGER DEFAULT 0, pressure INTEGER DEFAULT 0,
         black_coins INTEGER DEFAULT 0, normal_coins INTEGER DEFAULT 100, team_json JSONB DEFAULT '[]'::jsonb,
         current_match_state JSONB DEFAULT NULL, in_shadow_league BOOLEAN DEFAULT FALSE, shadow_wins INTEGER DEFAULT 0,
         ego_broken_at TIMESTAMPTZ DEFAULT NULL, last_attack_at TIMESTAMPTZ DEFAULT NULL, 
-        last_match_action_at TIMESTAMPTZ DEFAULT NULL, current_ego INTEGER DEFAULT 2000, last_ego_update TIMESTAMPTZ DEFAULT NOW()
+        last_match_action_at TIMESTAMPTZ DEFAULT NULL, current_ego INTEGER DEFAULT 2000, last_ego_update TIMESTAMPTZ DEFAULT NOW(),
+        main_char_id INTEGER DEFAULT NULL
     )''')
     
     cur.execute('''CREATE TABLE IF NOT EXISTS characters (
