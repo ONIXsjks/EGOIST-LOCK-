@@ -72,16 +72,14 @@ async def back_to_main(callback: types.CallbackQuery):
     await callback.message.edit_text("🔵 **منوی اصلی بلو لاک**\n\nچه کاری می‌خوای انجام بدی؟", reply_markup=main_menu_keyboard())
     await callback.answer()
 
-# --- پروفایل اصلاح شده با dict ---
 @dp.callback_query(F.data == "my_profile")
 async def show_profile(callback: types.CallbackQuery):
     try:
         player = get_player(callback.from_user.id)
         if not player:
             return await callback.answer("❌ ابتدا /start بزنید.", show_alert=True)
-            
         p = dict(player)
-        ego = p.get('current_ego', 2000) # استفاده از current_ego
+        ego = p.get('current_ego', 2000)
         sanity = p.get('sanity', 100)
         fatigue = p.get('fatigue', 0)
         pressure = p.get('pressure', 0)
@@ -90,7 +88,6 @@ async def show_profile(callback: types.CallbackQuery):
         level = p.get('level', 1)
         xp = p.get('xp', 0)
         username = p.get('username', 'Unknown')
-
         text = (f"👤 **پروفایل: {username}**\n-------------------------\n"
                 f"📈 سطح: {level} | XP: {xp}\n"
                 f"🧠 اِگو: {ego}/2000 | 🧘 روان: {sanity}\n"
@@ -102,7 +99,6 @@ async def show_profile(callback: types.CallbackQuery):
         await callback.message.edit_text(f"⚠️ خطا در دریافت پروفایل.\n(Error: {str(e)})")
     await callback.answer()
 
-# --- توطئه مربی اصلاح شده ---
 @dp.callback_query(F.data == "coach_agenda")
 async def coach_agenda(callback: types.CallbackQuery):
     try:
@@ -405,7 +401,7 @@ async def text_match_action(message: types.Message):
         return
         
     opponent_name = message.reply_to_message.from_user.first_name or "حریف"
-    opponent_id = message.reply_to_message.from_user.id # آیدی عددی حریف
+    opponent_id = message.reply_to_message.from_user.id
     
     result = attack_with_technique(message.from_user.id, text, opponent_name, opponent_id)
     
@@ -456,9 +452,11 @@ class AdminStates(StatesGroup):
     waiting_for_event_reward_black = State()
     waiting_for_event_reward_normal = State()
 
+# --- پنل مالک (دستور /admin) ---
 @dp.message(Command("admin"))
 async def admin_panel(message: types.Message):
-    if message.from_user.id != OWNER_ID: return await message.answer("⛔ دسترسی نداری.")
+    if message.from_user.id != OWNER_ID: 
+        return await message.answer("⛔ دسترسی نداری.")
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ ADD NEW CARD", callback_data="admin_add_card")],
         [InlineKeyboardButton(text="🖼️ CHANGE MENU IMAGE", callback_data="admin_set_image")],
