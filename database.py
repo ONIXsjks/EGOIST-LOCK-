@@ -19,7 +19,7 @@ def init_db():
         ego INTEGER DEFAULT 100, sanity INTEGER DEFAULT 100, fatigue INTEGER DEFAULT 0, pressure INTEGER DEFAULT 0,
         black_coins INTEGER DEFAULT 0, normal_coins INTEGER DEFAULT 100, team_json JSONB DEFAULT '[]'::jsonb,
         current_match_state JSONB DEFAULT NULL, in_shadow_league BOOLEAN DEFAULT FALSE, shadow_wins INTEGER DEFAULT 0,
-        ego_broken_at TIMESTAMPTZ DEFAULT NULL
+        ego_broken_at TIMESTAMPTZ DEFAULT NULL, last_attack_at TIMESTAMPTZ DEFAULT NULL
     )''')
     
     cur.execute('''CREATE TABLE IF NOT EXISTS characters (
@@ -87,6 +87,7 @@ def use_wild_card(user_id, char_id_to_burn):
     team.append(legendary['char_id'])
     cur.execute('UPDATE players SET team_json = %s WHERE user_id = %s', (json.dumps(team), user_id))
     conn.commit(); cur.close(); conn.close(); return dict(legendary)
+
 def check_ego_recovery(user_id):
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute('SELECT ego, ego_broken_at FROM players WHERE user_id = %s', (user_id,))
@@ -97,10 +98,9 @@ def check_ego_recovery(user_id):
             cur.execute('UPDATE players SET ego = 100, ego_broken_at = NULL WHERE user_id = %s', (user_id,))
             conn.commit(); cur.close(); conn.close(); return "recovered"
     cur.close(); conn.close(); return "not_recovered"
-
 def attack_with_technique(user_id, technique_name, opponent_name):
     conn = get_db_connection(); cur = conn.cursor()
-    cur.execute('SELECT ego, team_json, ego_broken_at, xp, normal_coins, level FROM players WHERE user_id = %s', (user_id,))
+    cur.execute('SELECT ego, team_json, ego_broken_at, xp, normal_coins, level, last_attack_at FROM players WHERE user_id = %s', (user_id,))
     player = cur.fetchone()
     
     if player['ego'] <= 0:
@@ -114,14 +114,11 @@ def attack_with_technique(user_id, technique_name, opponent_name):
     chosen_char = None
     matched_skill_name = None
     
-    # ۱. چک کردن تکنیک اصلی کارت
     for char in team_chars:
         if char['technique'].lower() == technique_name.lower():
             chosen_char = char
             matched_skill_name = char['technique']
             break
-            
-    # ۲. چک کردن مهارت‌های خریداری شده
     if not chosen_char:
         for skill_name, currency in unlocked.items():
             if skill_name.lower() == technique_name.lower():
@@ -132,11 +129,25 @@ def attack_with_technique(user_id, technique_name, opponent_name):
     if not chosen_char:
         conn.close(); return "no_technique"
 
+    # تعیین کول‌داون بر اساس نوع مهارت
     currency_type = "normal"
     if matched_skill_name in unlocked:
         currency_type = unlocked[matched_skill_name]
+        
+    if currency_type == "black":
+        cooldown_sec = 30
+    elif matched_skill_name != chosen_char['technique']:
+        cooldown_sec = 15
+    else:
+        cooldown_sec = 5
 
-    # تنظیم حداقل و حداکثر دمیج بر اساس رنک و سکه
+    if player['last_attack_at']:
+        time_passed = datetime.now(player['last_attack_at'].tzinfo) - player['last_attack_at']
+        if time_passed.total_seconds() < cooldown_sec:
+            remaining = cooldown_sec - int(time_passed.total_seconds())
+            conn.close()
+            return f"cooldown_{remaining}"
+
     rarity = chosen_char['rarity']
     if rarity == 'Legendary':
         min_dmg, max_dmg = (300, 400) if currency_type == "black" else (200, 250)
@@ -144,18 +155,17 @@ def attack_with_technique(user_id, technique_name, opponent_name):
     elif rarity == 'Epic':
         min_dmg, max_dmg = (220, 300) if currency_type == "black" else (150, 190)
         max_ego = 2000
-    else: # Rare
+    else:
         min_dmg, max_dmg = (180, 250) if currency_type == "black" else (100, 150)
         max_ego = 1000
         
-    # تولید دمیج تصادفی
     damage = random.randint(min_dmg, max_dmg)
-    
     new_ego = max(0, player['ego'] - 10)
     reward_xp = random.randint(2, 5) 
     reward_coins = random.randint(2, 5)
     
-    cur.execute('UPDATE players SET ego = %s, xp = xp + %s, normal_coins = normal_coins + %s WHERE user_id = %s', (new_ego, reward_xp, reward_coins, user_id))
+    cur.execute('UPDATE players SET ego = %s, xp = xp + %s, normal_coins = normal_coins + %s, last_attack_at = %s WHERE user_id = %s', 
+                (new_ego, reward_xp, reward_coins, datetime.now(), user_id))
     if new_ego == 0: 
         cur.execute('UPDATE players SET ego_broken_at = %s WHERE user_id = %s', (datetime.now(), user_id))
     conn.commit(); cur.close(); conn.close()
