@@ -23,8 +23,7 @@ from database import (
     upgrade_card_duplicate, buy_from_black_market, check_flow_state,
     add_training_point, upgrade_card_stat, add_skin_to_inventory, set_active_skin,
     set_global_event, get_global_event, start_bet_duel, resolve_bet_duel, admin_give_coins,
-    init_new_systems, check_dream_team, create_trade_offer, accept_trade_offer,
-    ascend_card, create_legendary_boss, get_legendary_boss, fight_legendary_boss,
+    init_new_systems, check_dream_team, ascend_card,
     add_achievement, get_achievements, update_achievement_progress
 )
 from seed_data import seed_characters
@@ -44,7 +43,6 @@ def run_flask():
     app.run(host='0.0.0.0', port=port)
 
 def main_menu_keyboard():
-    # ✅ منوی ۳ ردیفی و مرتب
     kb = [
         [InlineKeyboardButton(text="🔥 ACTIVE EVENT", callback_data="active_event_menu"), InlineKeyboardButton(text="🎰 GACHA", callback_data="gacha_shop"), InlineKeyboardButton(text="🧠 MANAGE TEAM", callback_data="manage_team")],
         [InlineKeyboardButton(text="🌌 EGO DOMAIN", callback_data="free_mode"), InlineKeyboardButton(text="🕵️‍♂️ COACH AGENDA", callback_data="coach_agenda"), InlineKeyboardButton(text="🎯 SELECT CHARACTER", callback_data="select_main_char")],
@@ -72,10 +70,8 @@ async def safe_edit_message(callback: types.CallbackQuery, text: str, reply_mark
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    try:
-        init_new_systems() # اجرای ساخت جدول‌های جدید
-    except Exception as e:
-        print(f"DB Error: {e}")
+    try: init_new_systems()
+    except Exception as e: print(f"DB Error: {e}")
 
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
@@ -106,7 +102,6 @@ async def help_menu(callback: types.CallbackQuery):
         "🔹 **دوئل شرطی:** روی پیام حریف ریپلای کن و بنویس `چالش` (شرط ۵۰ سکه).\n"
         "🔹 **ترید:** روی پیام حریف ریپلای کن و بنویس `ترید` (کارت‌ها معاوضه میشن).\n"
         "🔹 **نبرد دوستانه:** روی پیام حریف ریپلای کن و بنویس `نبرد دوستانه`.\n"
-        "🔹 **باس افسانه‌ای:** هر ۲۴ ساعت یک بار، با نوشتن `باس افسانه‌ای` ظاهر میشه.\n"
         "🔹 **تیم رویایی:** ۳ کارت از یک تیم خاص توی ترکیب بذار تا بونوس دمیج بگیری.\n"
         "🔹 **لول آپ کارت:** از قلمرو اگو، کارت‌های اضافی رو بسوزون تا رده کارتت بالا بره.\n"
         "🔹 **دستاوردها:** با انجام کارهای خاص، نشان و جایزه بگیر.\n"
@@ -137,8 +132,7 @@ async def show_profile(callback: types.CallbackQuery):
 
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
         if image_url:
-            try:
-                await callback.message.delete()
+            try: await callback.message.delete()
             except: pass
             await callback.message.answer_photo(photo=image_url, caption=text, reply_markup=kb)
         else:
@@ -171,9 +165,15 @@ async def show_leaderboard(callback: types.CallbackQuery):
         text = "🏆 **۱۰ بازیکن برتر بلو لاک**\n-------------------------\n"
         for i, p in enumerate(players, 1):
             medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-            text += f"{medal} **{p.get('username', 'Unknown')}** | Lv.{p.get('level', 1)} | XP: {p.get('xp', 0)}\n"
+            username = p.get('username', 'Unknown')
+            level = p.get('level', 1)
+            xp = p.get('xp', 0)
+            text += f"{medal} **{username}** | Lv.{level} | XP: {xp}\n"
+        
         my_rank = get_player_rank(callback.from_user.id)
-        if my_rank: text += f"\n-------------------------\n📍 رتبه شما: **{my_rank}**"
+        if my_rank:
+            text += f"\n-------------------------\n📍 رتبه شما: **{my_rank}**"
+    
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
     await safe_edit_message(callback, text, reply_markup=kb)
     await callback.answer()
@@ -295,12 +295,9 @@ async def show_char_skills(callback: types.CallbackQuery):
     team = get_player_team(callback.from_user.id)
     char = next((c for c in team if c['char_id'] == char_id), None)
     if not char: return await callback.answer("پیدا نشد!")
+    
     char_name = char['name']
     text = f"🌌 **قلمرو اگو - {char_name}**\n-------------------------\nهر مهارت با سکه قابل باز کردنه. مهارت‌های پایین‌تر نیاز به سکه سیاه دارن!\n\n"
-    
-    ascend_text = ""
-    if char['rarity'] == 'Rare': ascend_text = "\n🔼 **ارتقا به Epic:** نیازمند ۳ کارت Rare + ۳۰۰ سکه"
-    elif char['rarity'] == 'Epic': ascend_text = "\n🔼 **ارتقا به Legendary:** نیازمند ۳ کارت Epic + ۵۰۰ سکه"
     
     skills = []
     if char_name == "Yoichi Isagi":
@@ -310,7 +307,22 @@ async def show_char_skills(callback: types.CallbackQuery):
     else:
         tech = char['technique']
         skills = [(tech, 500, "normal"), ("POWER SHOT", 500, "normal"), ("QUICK DRIBBLE", 500, "normal"), ("DEFENSIVE STANCE", 800, "normal"), ("BEAST MODE", 5, "black"), ("ULTIMATE FINISH", 10, "black"), ("DOMAIN EXPANSION", 15, "black")]
+    
     unlocked = get_unlocked_skills(callback.from_user.id)
+    
+    # ✅ باز کردن خودکار ۴ مهارت اول (پولی) بدون کم کردن سکه
+    for i in range(4):
+        if i < len(skills):
+            skill_name, cost, currency = skills[i]
+            if skill_name not in unlocked:
+                unlock_skill_db(callback.from_user.id, skill_name, currency)
+                
+    unlocked = get_unlocked_skills(callback.from_user.id)
+    
+    ascend_text = ""
+    if char['rarity'] == 'Rare': ascend_text = "\n🔼 **ارتقا به Epic:** نیازمند ۳ کارت Rare + ۳۰۰ سکه"
+    elif char['rarity'] == 'Epic': ascend_text = "\n🔼 **ارتقا به Legendary:** نیازمند ۳ کارت Epic + ۵۰۰ سکه"
+    
     kb_buttons = []
     for skill_name, cost, currency in skills:
         if skill_name in unlocked:
@@ -675,6 +687,7 @@ async def process_image(message: types.Message, state: FSMContext):
     conn.commit(); cur.close(); conn.close()
     await message.answer(f"✅ **{data['name']}** ساخته شد!")
     await state.clear()
+
 @dp.callback_query(F.data == "coach_agenda")
 async def coach_agenda(callback: types.CallbackQuery):
     try:
@@ -686,7 +699,6 @@ async def coach_agenda(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
     await safe_edit_message(callback, text, reply_markup=kb)
     await callback.answer()
-
 @dp.callback_query(F.data == "active_event_menu")
 async def active_event_menu(callback: types.CallbackQuery):
     event = get_active_event()
