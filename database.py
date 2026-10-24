@@ -13,7 +13,6 @@ def init_db():
     print("✅ اتصال به دیتابیس برقرار است.")
     conn = get_db_connection(); cur = conn.cursor()
     
-    # ساخت جدول بازیکن‌ها با تمام ستون‌های جدید (شامل main_char_id)
     cur.execute('''CREATE TABLE IF NOT EXISTS players (
         user_id BIGINT PRIMARY KEY, username TEXT, level INTEGER DEFAULT 1, xp INTEGER DEFAULT 0,
         ego INTEGER DEFAULT 100, sanity INTEGER DEFAULT 100, fatigue INTEGER DEFAULT 0, pressure INTEGER DEFAULT 0,
@@ -184,10 +183,13 @@ def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
     )
 
 def resolve_duel(user_id, player_char_name, player_technique, player_power, npc_name, npc_power, action):
+    # action در اینجا همون اسم تکنیکه (مثلاً Direct Shot یا Meta Vision)
     base_damage = player_power - (npc_power * 0.8)
-    if action == "shoot": damage_multiplier = 1.5; action_text = "شوت"
-    elif action == "pass": damage_multiplier = 0.5; action_text = "پاس"
-    else: damage_multiplier = 1.0; action_text = "دریبل"
+    
+    # چون دیگه دکمه شوت و پاس نداریم، همه رو ضریب ۱.۵ در نظر می‌گیریم
+    damage_multiplier = 1.5 
+    action_text = f"تکنیک {player_technique}"
+
     final_damage = max(0, int(base_damage * damage_multiplier) + random.randint(-10, 10))
     
     conn = get_db_connection(); cur = conn.cursor()
@@ -197,7 +199,7 @@ def resolve_duel(user_id, player_char_name, player_technique, player_power, npc_
     if final_damage > 0:
         return {"success": True, "text": f"☠️ **{player_char_name}** ➔ 📍 **{npc_name}**\nLv.1 · 『 {player_technique} 』\n💥 -{final_damage} 🔥 **CRIT** 🔥\n🧠 **Ego:** {npc_name} 0/2,500\n▭▭▭▭▭▭▭▭▭▭▭▭\n🧠 **Ego:** {player_char_name} 477/2,500\n▭▭▭▭▭▭▭▭▭▭▭▭\n⭐ +20 XP · 🪙 +25"}
     else:
-        return {"success": False, "text": f"🛡️ **{npc_name}** دفاع کرد! حمله {action_text} شما دفع شد."}
+        return {"success": False, "text": f"🛡️ **{npc_name}** دفاع کرد! {action_text} شما دفع شد."}
 
 def start_pvp_match(user_id, opponent_id=0):
     conn = get_db_connection(); cur = conn.cursor()
