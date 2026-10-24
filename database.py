@@ -4,8 +4,8 @@ import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-# 🔴 پسورد خودت رو اینجا جایگزین [YOUR-PASSWORD] کن
-DATABASE_URL = "postgresql://postgres.hjynfqrsyxjbchmghsg:[YOUR-PASSWORD]@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
+# 🔴 رشته اتصال تمیز و استاندارد
+DATABASE_URL = "postgresql://postgres.hjynfqrsyxjibchmghsg:PH6t8bseGQrPp9el@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
 
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
