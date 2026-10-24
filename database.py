@@ -1,14 +1,29 @@
 import json
 import random
-import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-# 🔴 رشته اتصال تمیز و استاندارد
 DATABASE_URL = "postgresql://postgres.hjynfqrsyxjibchmghsg:PH6t8bseGQrPp9el@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
 
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+
+def init_db():
+    print("✅ اتصال به دیتابیس برقرار است.")
+    conn = get_db_connection()
+    cur = conn.cursor()
+    # ساخت جدول برای ثبت دمیج‌های فانتزی
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS player_damage (
+            user_id BIGINT,
+            char_id INTEGER,
+            damage_received INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, char_id)
+        )
+    ''')
+    conn.commit()
+    cur.close()
+    conn.close()
 
 def get_player(user_id):
     conn = get_db_connection()
@@ -26,207 +41,123 @@ def create_player(user_id, username):
         cur.execute('INSERT INTO players (user_id, username) VALUES (%s, %s)', (user_id, username))
         conn.commit()
     cur.close(); conn.close()
-
-def init_db():
-    print("✅ اتصال به Supabase (Pooler) برقرار است.")
-
-def perform_gacha(user_id, cost=100):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT normal_coins, team_json FROM players WHERE user_id = %s', (user_id,))
-    player = cur.fetchone()
-    if not player: cur.close(); conn.close(); return "no_player"
-    if player['normal_coins'] < cost: cur.close(); conn.close(); return "no_coins"
-
-    new_coins = player['normal_coins'] - cost
-    cur.execute('UPDATE players SET normal_coins = %s WHERE user_id = %s', (new_coins, user_id))
-
-    roll = random.random()
-    if roll <= 0.03: rarity = 'Legendary'
-    elif roll <= 0.25: rarity = 'Epic'
-    else: rarity = 'Rare'
-
-    cur.execute('SELECT * FROM characters WHERE rarity = %s ORDER BY RANDOM() LIMIT 1', (rarity,))
-    char = cur.fetchone()
-    if not char: 
-        conn.rollback(); cur.close(); conn.close(); return "no_chars"
+def resolve_duel(user_id, player_char_name, player_technique, player_power, npc_name, npc_power, action):
+    base_damage = player_power - (npc_power * 0.8)
     
-    team = player['team_json'] if player['team_json'] else []
-    team.append(char['char_id'])
-    cur.execute('UPDATE players SET team_json = %s WHERE user_id = %s', (json.dumps(team), user_id))
-    conn.commit(); cur.close(); conn.close()
-    return dict(char)
-
-def rest_player(user_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT fatigue, pressure, sanity, normal_coins FROM players WHERE user_id = %s', (user_id,))
-    player = cur.fetchone()
-    if player['normal_coins'] < 30: cur.close(); conn.close(); return "no_coins"
-    
-    cur.execute('''UPDATE players SET fatigue = %s, pressure = %s, sanity = %s, normal_coins = %s WHERE user_id = %s''',
-                 (max(0, player['fatigue'] - 40), max(0, player['pressure'] - 40), min(100, player['sanity'] + 30), player['normal_coins'] - 30, user_id))
-    conn.commit(); cur.close(); conn.close()
-    return "success"
-
-def train_player(user_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT fatigue, normal_coins, xp, level FROM players WHERE user_id = %s', (user_id,))
-    player = cur.fetchone()
-    if player['normal_coins'] < 50: cur.close(); conn.close(); return "no_coins"
-    if player['fatigue'] >= 90: cur.close(); conn.close(); return "too_tired"
-
-    new_xp = player['xp'] + 15
-    level = player['level']
-    level_up = False
-    if new_xp >= 100:
-        new_xp -= 100
-        level += 1
-        level_up = True
-
-    cur.execute('''UPDATE players SET fatigue = %s, normal_coins = %s, xp = %s, level = %s WHERE user_id = %s''',
-                 (min(100, player['fatigue'] + 30), player['normal_coins'] - 50, new_xp, level, user_id))
-    conn.commit(); cur.close(); conn.close()
-    return {"status": "success", "xp": 15, "level_up": level_up, "new_level": level}
-
-def start_new_match(user_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT ego, team_json FROM players WHERE user_id = %s', (user_id,))
-    player = cur.fetchone()
-    if not player or not player['team_json']:
-        cur.close(); conn.close(); return "no_team"
-        
-    team_ids = player['team_json']
-    cur.execute('SELECT base_power, is_cursed FROM characters WHERE char_id = ANY(%s)', (team_ids,))
-    chars = cur.fetchall()
-    
-    player_power = sum([c['base_power'] for c in chars]) / len(chars) if chars else 50
-    cursed_count = sum([1 for c in chars if c['is_cursed']])
-    
-    if cursed_count > 0:
-        cur.execute('UPDATE players SET sanity = %s WHERE user_id = %s', (max(0, 100 - (cursed_count * 10)), user_id))
-
-    npc_name = random.choice(["Tiger Team", "Kaiser's Team", "Blue Lock 11", "U-20 Japan"])
-    npc_power = random.randint(60, 95)
-    
-    match_state = {
-        "npc_name": npc_name, "npc_power": npc_power, "player_power": player_power,
-        "score_player": 0, "score_npc": 0, "turn": 1, "max_turns": 5, "is_2v2": False
-    }
-    
-    cur.execute('UPDATE players SET current_match_state = %s WHERE user_id = %s', (json.dumps(match_state), user_id))
-    conn.commit(); cur.close(); conn.close()
-    return match_state
-
-def start_2v2_match(user_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT ego, team_json FROM players WHERE user_id = %s', (user_id,))
-    player = cur.fetchone()
-    if len(player['team_json']) < 2: cur.close(); conn.close(); return "need_2_cards"
-    
-    match_team_ids = player['team_json'][:2]
-    cur.execute('SELECT base_power, is_cursed FROM characters WHERE char_id = ANY(%s)', (match_team_ids,))
-    chars = cur.fetchall()
-    player_power = sum([c['base_power'] for c in chars]) / len(chars)
-    cursed_count = sum([1 for c in chars if c['is_cursed']])
-    
-    if cursed_count > 0:
-        cur.execute('UPDATE players SET sanity = %s WHERE user_id = %s', (max(0, 100 - (cursed_count * 10)), user_id))
-
-    npc_name = random.choice(["تیم کایزر و نس", "تیم سائه و شیدو", "تیم ایساگی و باچیرا"])
-    npc_power = random.randint(70, 100)
-    
-    match_state = {
-        "npc_name": npc_name, "npc_power": npc_power, "player_power": player_power,
-        "score_player": 0, "score_npc": 0, "turn": 1, "max_turns": 3, "is_2v2": True
-    }
-    
-    cur.execute('UPDATE players SET current_match_state = %s WHERE user_id = %s', (json.dumps(match_state), user_id))
-    conn.commit(); cur.close(); conn.close()
-    return match_state
-
-def resolve_turn(user_id, action):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT ego, current_match_state FROM players WHERE user_id = %s', (user_id,))
-    player = cur.fetchone()
-    state = player['current_match_state']
-    if isinstance(state, str): state = json.loads(state)
-    
-    base_chance = (state['player_power'] / (state['player_power'] + state['npc_power'])) * 100
-    flow_bonus = 1.5 if player['ego'] >= 90 else 1.0
-    
-    if action == "shoot": 
-        success_chance = (base_chance * 0.6) * flow_bonus
-        double_chance = 30 if player['ego'] >= 90 else 0
-    elif action == "pass": 
-        success_chance = base_chance * 1.2
-        double_chance = 0
-    else: 
-        success_chance = base_chance * 0.9
-        double_chance = 0
-
-    if random.randint(1, 100) <= success_chance:
-        goals = 1
-        if double_chance > 0 and random.randint(1, 100) <= double_chance:
-            goals = 2
-            result_text = "🔥 **حالت فلو! دوبل زدی!** توپ دو بار به تور نشست."
-        else:
-            result_text = "✅ **موفق بودی!** توپ به تور نشست."
-        state['score_player'] += goals
+    if action == "shoot":
+        technique_text = f"**{player_technique}** (شوت)"
+        damage_multiplier = 1.5
+    elif action == "pass":
+        technique_text = f"**{player_technique}** (پاس)"
+        damage_multiplier = 0.5
     else:
-        state['score_npc'] += 1
-        result_text = "❌ **شکست خوردی!** حریف ضدحمله کرد."
+        technique_text = f"**{player_technique}** (دریبل)"
+        damage_multiplier = 1.0
 
-    state['turn'] += 1
-    cur.execute('UPDATE players SET current_match_state = %s WHERE user_id = %s', (json.dumps(state), user_id))
+    final_damage = int(base_damage * damage_multiplier) + random.randint(-10, 10)
+    
+    if final_damage > 0:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO player_damage (user_id, char_id, damage_received) 
+            VALUES (%s, (SELECT char_id FROM characters WHERE name = %s LIMIT 1), %s)
+            ON CONFLICT (user_id, char_id) DO UPDATE 
+            SET damage_received = player_damage.damage_received + EXCLUDED.damage_received
+        ''', (user_id, npc_name, final_damage))
+        conn.commit(); cur.close(); conn.close()
+
+        return {
+            "success": True,
+            "text": f"⚔️ **دوئل:** {player_char_name} ({technique_text}) در برابر {npc_name}\n\n💥 دمیج وارد شده: **{final_damage}**\n✅ حمله موفق بود!",
+            "damage": final_damage
+        }
+    else:
+        return {
+            "success": False,
+            "text": f"⚔️ **دوئل:** {player_char_name} در برابر {npc_name}\n\n🛡️ حریف دفاع کرد! حمله شما دفع شد.",
+            "damage": 0
+        }
+
+def start_pvp_match(user_id, opponent_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute('SELECT username, ego, team_json FROM players WHERE user_id = %s', (user_id,))
+    p1 = cur.fetchone()
+    
+    cur.execute('SELECT username, ego, team_json FROM players WHERE user_id = %s', (opponent_id,))
+    p2 = cur.fetchone()
+    
+    if not p1 or not p2: 
+        conn.close(); return "no_player"
+    if not p1['team_json']: 
+        conn.close(); return "no_team"
+    
+    cur.execute('SELECT name, technique, base_power FROM characters WHERE char_id = ANY(%s)', (p1['team_json'],))
+    p1_chars = cur.fetchall()
+    p1_power = sum([c['base_power'] for c in p1_chars]) / len(p1_chars) if p1_chars else 50
+    p1_star = p1_chars[0] if p1_chars else {"name": "Unknown", "technique": "None"}
+
+    # اگر حریف NPC بود (آیدی 0)
+    if opponent_id == 0:
+        p2_power = random.randint(60, 95)
+        p2_name = "NPC Legend"
+        p2_star_name = "Strong NPC"
+    else:
+        cur.execute('SELECT name, base_power FROM characters WHERE char_id = ANY(%s)', (p2['team_json'],))
+        p2_chars = cur.fetchall()
+        p2_power = sum([c['base_power'] for c in p2_chars]) / len(p2_chars) if p2_chars else 50
+        p2_star = p2_chars[0] if p2_chars else {"name": "Unknown"}
+        p2_name = p2['username']
+        p2_star_name = p2_star['name']
+    
+    match_state = {
+        "type": "pvp",
+        "opponent_name": p2_name,
+        "opponent_id": opponent_id,
+        "player_star": p1_star['name'],
+        "player_technique": p1_star['technique'],
+        "player_power": p1_power,
+        "npc_name": p2_star_name,
+        "npc_power": p2_power,
+        "score_player": 0, "score_npc": 0, 
+        "turn": 1, "max_turns": 5
+    }
+    
+    cur.execute('UPDATE players SET current_match_state = %s WHERE user_id = %s', (json.dumps(match_state), user_id))
     conn.commit(); cur.close(); conn.close()
-    return {"success": True, "text": result_text, "state": state, "is_finished": state['turn'] > state['max_turns']}
+    return match_state
 
-def check_synergy(user_id):
+def start_team_battle(user_id):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute('SELECT team_json FROM players WHERE user_id = %s', (user_id,))
+    cur.execute('SELECT username, ego, team_json FROM players WHERE user_id = %s', (user_id,))
     player = cur.fetchone()
-    if not player or not player['team_json']: cur.close(); conn.close(); return None
     
-    cur.execute('SELECT synergy_tag FROM characters WHERE char_id = ANY(%s)', (player['team_json'],))
+    team_ids = player['team_json'] if player['team_json'] else []
+    if len(team_ids) < 3: 
+        conn.close(); return "need_3_cards"
+    
+    cur.execute('SELECT name, technique, base_power FROM characters WHERE char_id = ANY(%s)', (team_ids,))
     chars = cur.fetchall()
-    cur.close(); conn.close()
-    tags = [c['synergy_tag'] for c in chars]
-    combos = [
-        {"tags": ["isagi", "bachira"], "name": "حمله ترکیبی: ایساگی و باچیرا"},
-        {"tags": ["sae", "rin"], "name": "حمله ترکیبی: برادران ایتوشی"},
-        {"tags": ["shidou", "sae"], "name": "حمله ترکیبی: سائه و شیدو"},
-        {"tags": ["nagi", "mikage"], "name": "حمله ترکیبی: ناگی و میکاگه"}
-    ]
-    for combo in combos:
-        if all(tag in tags for tag in combo["tags"]): return combo
-    return None
-
-def check_teammate_jealousy(user_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT ego, team_json FROM players WHERE user_id = %s', (user_id,))
-    player = cur.fetchone()
-    if not player or not player['team_json']: cur.close(); conn.close(); return "no_team"
     
-    cur.execute('SELECT name, synergy_tag FROM characters WHERE char_id = ANY(%s)', (player['team_json'],))
-    chars = cur.fetchall()
-    cur.close(); conn.close()
-    
-    jealousy_chance = 30 if player['ego'] > 70 else 15 if player['ego'] > 50 else 0
-    for c in chars:
-        if c['synergy_tag'] in ['shidou', 'rin', 'kaiser', 'barou', 'karasu', 'lorenzo']:
-            jealousy_chance += 15 
-            
-    if random.randint(1, 100) <= jealousy_chance:
-        return {"status": "betrayed", "name": random.choice(chars)['name']}
-    return {"status": "loyal"}
+    player_power = sum([c['base_power'] for c in chars]) / len(chars)
 
+    match_state = {
+        "type": "team_battle",
+        "player_star": chars[0]['name'],
+        "player_technique": chars[0]['technique'],
+        "player_power": player_power,
+        "npc_name": "تیم ستارگان اروپا",
+        "npc_power": random.randint(70, 100),
+        "score_player": 0, "score_npc": 0, 
+        "turn": 1, "max_turns": 4
+    }
+    
+    cur.execute('UPDATE players SET current_match_state = %s WHERE user_id = %s', (json.dumps(match_state), user_id))
+    conn.commit(); cur.close(); conn.close()
+    return match_state
 def finish_match_rewards(user_id, score_player, score_npc):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -250,88 +181,42 @@ def finish_match_rewards(user_id, score_player, score_npc):
     conn.commit(); cur.close(); conn.close()
     return result_msg + level_up_msg
 
-def generate_coach_mission(user_id):
+def perform_gacha(user_id, cost=100):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute('SELECT * FROM coach_missions WHERE player_id = %s AND is_active = TRUE', (user_id,))
-    active = cur.fetchone()
-    if active: cur.close(); conn.close(); return dict(active)
-    
-    missions = [{"type": "lose_on_purpose", "target": "any", "text": "در بازی بعدی بباز."},
-                {"type": "take_shots", "target": "any", "text": "در بازی بعدی، حداقل ۳ بار خودت شوت بزن."}]
-    mission = random.choice(missions)
-    
-    cur.execute('INSERT INTO coach_missions (player_id, mission_type, target_name) VALUES (%s, %s, %s)', (user_id, mission['type'], mission['target']))
-    conn.commit(); cur.close(); conn.close()
-    return mission
-
-def check_coach_mission(user_id, match_result):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT * FROM coach_missions WHERE player_id = %s AND is_active = TRUE', (user_id,))
-    mission = cur.fetchone()
-    if not mission: cur.close(); conn.close(); return "no_mission"
-    
-    success = (mission['mission_type'] == "lose_on_purpose" and match_result == "lose")
-    cur.execute('SELECT ego, pressure, normal_coins FROM players WHERE user_id = %s', (user_id,))
+    cur.execute('SELECT normal_coins, team_json FROM players WHERE user_id = %s', (user_id,))
     player = cur.fetchone()
+    if not player: 
+        conn.close(); return "no_player"
+    if player['normal_coins'] < cost: 
+        conn.close(); return "no_coins"
+
+    new_coins = player['normal_coins'] - cost
+    cur.execute('UPDATE players SET normal_coins = %s WHERE user_id = %s', (new_coins, user_id))
+
+    roll = random.random()
+    if roll <= 0.03: rarity = 'Legendary'
+    elif roll <= 0.25: rarity = 'Epic'
+    else: rarity = 'Rare'
+
+    cur.execute('SELECT * FROM characters WHERE rarity = %s ORDER BY RANDOM() LIMIT 1', (rarity,))
+    char = cur.fetchone()
+    if not char: 
+        conn.rollback(); cur.close(); conn.close(); return "no_chars"
     
-    if success:
-        cur.execute('UPDATE players SET ego = %s, normal_coins = %s WHERE user_id = %s', (min(100, player['ego'] + 15), player['normal_coins'] + 100, user_id))
-        cur.execute('UPDATE coach_missions SET is_active = FALSE, is_completed = TRUE WHERE mission_id = %s', (mission['mission_id'],))
-        conn.commit(); cur.close(); conn.close(); return "success"
-    else:
-        cur.execute('UPDATE players SET ego = %s, pressure = %s WHERE user_id = %s', (max(0, player['ego'] - 20), min(100, player['pressure'] + 30), user_id))
-        cur.execute('UPDATE coach_missions SET is_active = FALSE WHERE mission_id = %s', (mission['mission_id'],))
-        conn.commit(); cur.close(); conn.close(); return "failed"
-
-def enter_shadow_league(user_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('UPDATE players SET in_shadow_league = TRUE, shadow_wins = 0, sanity = 50 WHERE user_id = %s', (user_id,))
-    conn.commit(); cur.close(); conn.close()
-
-def shadow_league_result(user_id, is_win):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT shadow_wins, sanity FROM players WHERE user_id = %s', (user_id,))
-    player = cur.fetchone()
-    
-    if is_win:
-        new_wins = player['shadow_wins'] + 1
-        if new_wins >= 3:
-            cur.execute('UPDATE players SET in_shadow_league = FALSE, shadow_wins = 0, ego = 100 WHERE user_id = %s', (user_id,))
-            conn.commit(); cur.close(); conn.close(); return "freed"
-        cur.execute('UPDATE players SET shadow_wins = %s WHERE user_id = %s', (new_wins, user_id))
-        conn.commit(); cur.close(); conn.close(); return f"win_{new_wins}"
-    else:
-        cur.execute('UPDATE players SET shadow_wins = 0, sanity = %s WHERE user_id = %s', (max(0, player['sanity'] - 40), user_id))
-        conn.commit(); cur.close(); conn.close(); return "lose"
-
-def use_wild_card(user_id, char_id_to_burn):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT team_json FROM players WHERE user_id = %s', (user_id,))
-    player = cur.fetchone()
     team = player['team_json'] if player['team_json'] else []
-    if char_id_to_burn not in team: cur.close(); conn.close(); return "not_in_team"
-    
-    team.remove(char_id_to_burn)
-    cur.execute('SELECT * FROM characters WHERE rarity = "Legendary" ORDER BY RANDOM() LIMIT 1')
-    legendary = cur.fetchone()
-    if not legendary: cur.close(); conn.close(); return "no_legendary"
-    
-    team.append(legendary['char_id'])
+    team.append(char['char_id'])
     cur.execute('UPDATE players SET team_json = %s WHERE user_id = %s', (json.dumps(team), user_id))
     conn.commit(); cur.close(); conn.close()
-    return dict(legendary)
+    return dict(char)
 
 def get_player_team(user_id):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute('SELECT team_json FROM players WHERE user_id = %s', (user_id,))
     player = cur.fetchone()
-    if not player or not player['team_json']: cur.close(); conn.close(); return []
+    if not player or not player['team_json']: 
+        conn.close(); return []
     
     cur.execute('SELECT * FROM characters WHERE char_id = ANY(%s)', (player['team_json'],))
     chars = cur.fetchall()
@@ -351,6 +236,42 @@ def remove_from_team(user_id, char_id):
             conn.commit(); cur.close(); conn.close(); return True
     cur.close(); conn.close(); return False
 
+def rest_player(user_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT fatigue, pressure, sanity, normal_coins FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if player['normal_coins'] < 30: 
+        conn.close(); return "no_coins"
+    
+    cur.execute('''UPDATE players SET fatigue = %s, pressure = %s, sanity = %s, normal_coins = %s WHERE user_id = %s''',
+                 (max(0, player['fatigue'] - 40), max(0, player['pressure'] - 40), min(100, player['sanity'] + 30), player['normal_coins'] - 30, user_id))
+    conn.commit(); cur.close(); conn.close()
+    return "success"
+
+def train_player(user_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT fatigue, normal_coins, xp, level FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if player['normal_coins'] < 50: 
+        conn.close(); return "no_coins"
+    if player['fatigue'] >= 90: 
+        conn.close(); return "too_tired"
+
+    new_xp = player['xp'] + 15
+    level = player['level']
+    level_up = False
+    if new_xp >= 100:
+        new_xp -= 100
+        level += 1
+        level_up = True
+
+    cur.execute('''UPDATE players SET fatigue = %s, normal_coins = %s, xp = %s, level = %s WHERE user_id = %s''',
+                 (min(100, player['fatigue'] + 30), player['normal_coins'] - 50, new_xp, level, user_id))
+    conn.commit(); cur.close(); conn.close()
+    return {"status": "success", "xp": 15, "level_up": level_up, "new_level": level}
+
 def get_leaderboard(limit=10):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -364,8 +285,18 @@ def get_player_rank(user_id):
     cur = conn.cursor()
     cur.execute('SELECT level, xp FROM players WHERE user_id = %s', (user_id,))
     player = cur.fetchone()
-    if not player: cur.close(); conn.close(); return None
+    if not player: 
+        conn.close(); return None
     cur.execute('SELECT COUNT(*) + 1 FROM players WHERE level > %s OR (level = %s AND xp > %s)', (player['level'], player['level'], player['xp']))
     rank = cur.fetchone()['count']
     cur.close(); conn.close()
     return rank
+
+# توابع کمکی برای جلوگیری از خطای ایمپورت در main.py
+def check_synergy(user_id): return None 
+def check_teammate_jealousy(user_id): return "no_team"
+def generate_coach_mission(user_id): return {"text": "ماموریتی وجود ندارد."}
+def check_coach_mission(user_id, match_result): return "no_mission"
+def enter_shadow_league(user_id): pass
+def shadow_league_result(user_id, is_win): return "lose"
+def use_wild_card(user_id, char_id_to_burn): return "not_in_team"
