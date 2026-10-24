@@ -13,7 +13,7 @@ def init_db():
     print("✅ اتصال به دیتابیس برقرار است.")
     conn = get_db_connection(); cur = conn.cursor()
     
-    # ساخت تمام جدول‌ها (کامل)
+    # ساخت تمام جدول‌ها
     cur.execute('''CREATE TABLE IF NOT EXISTS players (
         user_id BIGINT PRIMARY KEY, username TEXT, level INTEGER DEFAULT 1, xp INTEGER DEFAULT 0,
         ego INTEGER DEFAULT 100, sanity INTEGER DEFAULT 100, fatigue INTEGER DEFAULT 0, pressure INTEGER DEFAULT 0,
@@ -102,38 +102,69 @@ def attack_with_technique(user_id, technique_name, opponent_name):
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute('SELECT ego, team_json, ego_broken_at, xp, normal_coins, level FROM players WHERE user_id = %s', (user_id,))
     player = cur.fetchone()
+    
     if player['ego'] <= 0:
         if check_ego_recovery(user_id) == "not_recovered":
             conn.close(); return "ego_broken"
-            
+
     cur.execute('SELECT name, technique, base_power, rarity FROM characters WHERE char_id = ANY(%s)', (player['team_json'],))
     team_chars = cur.fetchall()
-    chosen_char = next((c for c in team_chars if c['technique'].lower() == technique_name.lower()), None)
-    if not chosen_char: conn.close(); return "no_technique"
-
     unlocked = get_unlocked_skills(user_id)
-    currency_type = unlocked.get(chosen_char['technique'], "normal")
+    
+    chosen_char = None
+    matched_skill_name = None
+    
+    # ۱. چک کردن تکنیک اصلی کارت
+    for char in team_chars:
+        if char['technique'].lower() == technique_name.lower():
+            chosen_char = char
+            matched_skill_name = char['technique']
+            break
+            
+    # ۲. چک کردن مهارت‌های خریداری شده
+    if not chosen_char:
+        for skill_name, currency in unlocked.items():
+            if skill_name.lower() == technique_name.lower():
+                chosen_char = team_chars[0] 
+                matched_skill_name = skill_name
+                break
+                
+    if not chosen_char:
+        conn.close(); return "no_technique"
+
+    currency_type = "normal"
+    if matched_skill_name in unlocked:
+        currency_type = unlocked[matched_skill_name]
+
+    # تنظیم حداقل و حداکثر دمیج بر اساس رنک و سکه
     rarity = chosen_char['rarity']
-    if rarity == 'Legendary': max_damage = 400 if currency_type == "black" else 250
-    elif rarity == 'Epic': max_damage = 300 if currency_type == "black" else 190
-    else: max_damage = 250 if currency_type == "black" else 150
+    if rarity == 'Legendary':
+        min_dmg, max_dmg = (300, 400) if currency_type == "black" else (200, 250)
+        max_ego = 3000
+    elif rarity == 'Epic':
+        min_dmg, max_dmg = (220, 300) if currency_type == "black" else (150, 190)
+        max_ego = 2000
+    else: # Rare
+        min_dmg, max_dmg = (180, 250) if currency_type == "black" else (100, 150)
+        max_ego = 1000
         
-    level_bonus = player['level'] * 20
-    base_damage = int(chosen_char['base_power'] * 0.2) + level_bonus
-    damage = min(base_damage, max_damage)
+    # تولید دمیج تصادفی
+    damage = random.randint(min_dmg, max_dmg)
+    
     new_ego = max(0, player['ego'] - 10)
     reward_xp = random.randint(2, 5) 
     reward_coins = random.randint(2, 5)
     
     cur.execute('UPDATE players SET ego = %s, xp = xp + %s, normal_coins = normal_coins + %s WHERE user_id = %s', (new_ego, reward_xp, reward_coins, user_id))
-    if new_ego == 0: cur.execute('UPDATE players SET ego_broken_at = %s WHERE user_id = %s', (datetime.now(), user_id))
+    if new_ego == 0: 
+        cur.execute('UPDATE players SET ego_broken_at = %s WHERE user_id = %s', (datetime.now(), user_id))
     conn.commit(); cur.close(); conn.close()
     
     return (
         f"☠️ **{chosen_char['name']}** ➔ 📍 **{opponent_name}**\n"
-        f"Lv.{player['level']} · 『 {chosen_char['technique']} 』\n"
+        f"Lv.{player['level']} · 『 {matched_skill_name} 』\n"
         f"💥 -{damage} 🔥 **CRIT** 🔥\n"
-        f"🧠 **Ego:** {opponent_name} {max(0, 3000 - damage)}/3,000\n"
+        f"🧠 **Ego:** {opponent_name} {max(0, max_ego - damage)}/{max_ego:,}\n"
         f"▭▭▭▭▭▭▭▭▭▭▭▭\n"
         f"🧠 **Ego:** {chosen_char['name']} {new_ego}/100\n"
         f"▭▭▭▭▭▭▭▭▭▭▭▭\n"
