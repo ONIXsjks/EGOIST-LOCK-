@@ -104,15 +104,13 @@ def check_ego_recovery_all():
     cur.execute('''
         UPDATE players 
         SET current_ego = 2000, last_ego_update = NOW() 
-        WHERE current_ego < 2000 
+        WHERE current_ego <= 0 
         AND (NOW() - last_ego_update) >= interval '15 minutes'
     ''')
     conn.commit(); cur.close(); conn.close()
 
-def attack_with_technique(user_id, technique_name, opponent_name):
-    # چک کردن اینکه آیا کسی ۱۵ دقیقه بدون حمله مونده یا نه
+def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
     check_ego_recovery_all()
-
     conn = get_db_connection(); cur = conn.cursor()
     
     cur.execute('SELECT current_ego, team_json, xp, normal_coins, level, last_attack_at FROM players WHERE user_id = %s', (user_id,))
@@ -139,14 +137,9 @@ def attack_with_technique(user_id, technique_name, opponent_name):
     if not chosen_char:
         conn.close(); return "no_technique"
 
-    cur.execute('SELECT user_id, current_ego FROM players WHERE username = %s LIMIT 1', (opponent_name,))
+    cur.execute('SELECT current_ego FROM players WHERE user_id = %s', (opponent_id,))
     opponent_data = cur.fetchone()
-    
-    opponent_current_ego = 2000
-    opponent_user_id = None
-    if opponent_data:
-        opponent_current_ego = opponent_data['current_ego']
-        opponent_user_id = opponent_data['user_id']
+    opponent_current_ego = opponent_data['current_ego'] if opponent_data else 2000
 
     currency_type = "normal"
     if matched_skill_name in unlocked:
@@ -168,15 +161,13 @@ def attack_with_technique(user_id, technique_name, opponent_name):
             conn.close(); return f"cooldown_{remaining}"
 
     damage = random.randint(min_dmg, max_dmg)
-    
     new_opponent_ego = max(0, opponent_current_ego - damage)
     new_player_ego = max(0, player['current_ego'] - 10)
 
     cur.execute('UPDATE players SET current_ego = %s, xp = xp + %s, normal_coins = normal_coins + %s, last_attack_at = %s, last_ego_update = %s WHERE user_id = %s', 
                 (new_player_ego, random.randint(2, 5), random.randint(2, 5), datetime.now(), datetime.now(), user_id))
     
-    if opponent_user_id:
-        cur.execute('UPDATE players SET current_ego = %s, last_ego_update = %s WHERE user_id = %s', (new_opponent_ego, datetime.now(), opponent_user_id))
+    cur.execute('UPDATE players SET current_ego = %s, last_ego_update = %s WHERE user_id = %s', (new_opponent_ego, datetime.now(), opponent_id))
 
     conn.commit(); cur.close(); conn.close()
     
