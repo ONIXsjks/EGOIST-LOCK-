@@ -12,11 +12,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from database import (
-    init_db, get_player, create_player, perform_gacha, start_new_match, start_2v2_match,
-    resolve_turn, check_synergy, check_teammate_jealousy, finish_match_rewards,
-    get_player_team, remove_from_team, rest_player, train_player, generate_coach_mission, 
-    check_coach_mission, get_leaderboard, get_player_rank, enter_shadow_league, 
-    shadow_league_result, use_wild_card, get_db_connection
+    init_db, get_player, create_player, perform_gacha, 
+    start_pvp_match, start_team_battle, resolve_duel,
+    check_synergy, check_teammate_jealousy, finish_match_rewards,
+    get_player_team, remove_from_team, rest_player, train_player, 
+    generate_coach_mission, check_coach_mission, get_leaderboard, 
+    get_player_rank, enter_shadow_league, shadow_league_result, 
+    use_wild_card, get_db_connection
 )
 from seed_data import seed_characters
 
@@ -27,23 +29,29 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+# ==========================================
+# وب‌سرور Flask (برای Render)
+# ==========================================
 app = Flask(__name__)
+
 @app.route('/')
-def health(): return "Bot is running!"
+def health():
+    return "Bot is running!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
+# ==========================================
+# منوها و دکمه‌ها
+# ==========================================
 def main_menu_keyboard():
     kb = [
-        [InlineKeyboardButton(text="🏟️ ورود به زمین مسابقه", callback_data="enter_match")],
-        [InlineKeyboardButton(text="🎰 بازار گاچا (کارت‌ها)", callback_data="gacha_shop")],
+        [InlineKeyboardButton(text="🏟️ مسابقه (PvP و تیم بتل)", callback_data="enter_match")],
+        [InlineKeyboardButton(text="🎰 بازار گاچا", callback_data="gacha_shop")],
         [InlineKeyboardButton(text="🧠 مدیریت تیم", callback_data="manage_team")],
-        [InlineKeyboardButton(text="🃏 وایلد کارت (فدا کردن)", callback_data="wild_card_menu")],
+        [InlineKeyboardButton(text="🌳 بخش آزاد (درخت مهارت)", callback_data="free_mode")],
         [InlineKeyboardButton(text="🏋️ تمرین و ریکاوری", callback_data="training_menu")],
-        [InlineKeyboardButton(text="🕵️‍♂️ توطئه مربی", callback_data="coach_agenda")],
-        [InlineKeyboardButton(text="🏆 جدول رده‌بندی", callback_data="leaderboard")],
         [InlineKeyboardButton(text="📊 وضعیت من", callback_data="my_profile")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
@@ -76,6 +84,9 @@ async def show_profile(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]])
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
+# ==========================================
+# گاچا و مدیریت تیم
+# ==========================================
 @dp.callback_query(F.data == "gacha_shop")
 async def gacha_shop(callback: types.CallbackQuery):
     text = "🎰 **بازار گاچا**\n\nبا ۱۰۰ سکه شانست رو امتحان کن!\n🔴 Legendary: ۳٪\n🟣 Epic: ۲۲٪\n🔵 Rare: ۷۵٪"
@@ -119,7 +130,7 @@ async def view_character(callback: types.CallbackQuery):
     team = get_player_team(callback.from_user.id)
     char = next((c for c in team if c['char_id'] == char_id), None)
     if not char: return await callback.answer("پیدا نشد!")
-    text = f"🃏 **{char['name']}**\n📍 {char['position']}\n⚡ {char['technique']}\n💪 {char['base_power']}\n{'⚠️ **نفرین‌شده!**' if char['is_cursed'] else '✅ سالم'}"
+    text = f"🃏 **{char['name']}**\n📍 {char['position']}\n⚡ **تکنیک:** {char['technique']}\n💪 {char['base_power']}\n{'⚠️ **نفرین‌شده!**' if char['is_cursed'] else '✅ سالم'}"
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🗑️ حذف کارت", callback_data=f"delete_char_{char_id}")], [InlineKeyboardButton(text="🔙 بازگشت", callback_data="manage_team")]])
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
@@ -129,6 +140,24 @@ async def delete_character(callback: types.CallbackQuery):
     if remove_from_team(callback.from_user.id, int(callback.data.split("_")[2])):
         await callback.answer("🗑️ حذف شد!", show_alert=True)
         await manage_team(callback)
+
+# ==========================================
+# بخش آزاد و تمرین
+# ==========================================
+@dp.callback_query(F.data == "free_mode")
+async def free_mode(callback: types.CallbackQuery):
+    text = (
+        "🌳 **بخش آزاد - درخت مهارت**\n"
+        "-------------------------\n"
+        "اینجا می‌تونی مهارت‌های کاراکترت رو ببینی و دمیج‌هایی که بهشون وارد کردی رو مدیریت کنی.\n\n"
+        "🌿 **شاخه حمله:** DIRECT SHOT (سطح ۱)\n"
+        "🌿 **شاخه دفاع:** METAVISION (سطح ۱)\n"
+        "-------------------------\n"
+        "برای دیدن دمیج‌های وارد شده، روی کارت‌هات در بخش مدیریت تیم کلیک کن."
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]])
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    await callback.answer()
 
 @dp.callback_query(F.data == "training_menu")
 async def training_menu(callback: types.CallbackQuery):
@@ -153,121 +182,97 @@ async def action_train(callback: types.CallbackQuery):
     if res['level_up']: msg += f"\n🌟 لول {res['new_level']}!"
     await callback.answer(msg, show_alert=True)
     await training_menu(callback)
-
-@dp.callback_query(F.data == "wild_card_menu")
-async def wild_card_menu(callback: types.CallbackQuery):
-    team = get_player_team(callback.from_user.id)
-    if not team: return await callback.answer("تیمت خالیه!", show_alert=True)
-    text = "🃏 **وایلد کارت**\n\nیک کارت رو فدا کن تا شانس گرفتن یک Legendary رو داشته باشی!\nکدوم کارت رو می‌سوزونی؟"
-    kb_buttons = [[InlineKeyboardButton(text=f"🔥 سوزاندن {c['name']}", callback_data=f"burn_card_{c['char_id']}")] for c in team]
-    kb_buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")])
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
-    await callback.answer()
-
-@dp.callback_query(F.data.startswith("burn_card_"))
-async def burn_card(callback: types.CallbackQuery):
-    result = use_wild_card(callback.from_user.id, int(callback.data.split("_")[2]))
-    if result == "not_in_team": return await callback.answer("کارت پیدا نشد!", show_alert=True)
-    text = f"🔥 **کارت سوزانده شد!**\n🎉 یک کارت Legendary جدید:\n\n👤 **{result['name']}**\n⚡ {result['technique']}\n💪 {result['base_power']}"
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]])
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
-    await callback.answer()
+# ==========================================
+# مسابقات (PvP و تیم بتل)
+# ==========================================
 @dp.callback_query(F.data == "enter_match")
 async def enter_match(callback: types.CallbackQuery):
-    text = "🏟️ **ورود به زمین**\n\nنوع مسابقه:"
+    text = "🏟️ **ورود به زمین**\n\nنوع مسابقه رو انتخاب کن:"
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👤 تک‌نفره (۱v۱ - ۵ نوبت)", callback_data="start_match_now")],
-        [InlineKeyboardButton(text="👥 دونفره (۲v۲ - ۳ نوبت)", callback_data="start_2v2_now")],
+        [InlineKeyboardButton(text="⚔️ PvP (در برابر NPC)", callback_data="start_pvp")],
+        [InlineKeyboardButton(text="🛡️ تیم بتل (۳ در ۳)", callback_data="start_team_battle")],
         [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]
     ])
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
 
-@dp.callback_query(F.data == "start_match_now")
-async def start_match_now(callback: types.CallbackQuery):
-    data = start_new_match(callback.from_user.id)
+@dp.callback_query(F.data == "start_pvp")
+async def start_pvp(callback: types.CallbackQuery):
+    data = start_pvp_match(callback.from_user.id, 0) 
     if data == "no_team": return await callback.answer("❌ اول کارت بگیر!", show_alert=True)
-    banner = f"🏟️ **شروع شد!**\n🆚 {data['npc_name']} (قدرت: {data['npc_power']})\n⚡ تیم تو: {data['player_power']:.1f}\n⏱️ نوبت ۱/{data['max_turns']}\n🔵 ۰ - ۰ 🔴\n\nتوپ پیش توست."
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚽ شوت", callback_data="action_shoot")], [InlineKeyboardButton(text="🏃 دریبل", callback_data="action_dribble")], [InlineKeyboardButton(text="🎯 پاس", callback_data="action_pass")]])
+    
+    banner = f"⚔️ **مسابقه PvP شروع شد!**\n🆚 حریف: **{data['opponent_name']}**\n⚡ تکنیک ستاره تو: **{data['player_technique']}**\n⏱️ نوبت ۱/{data['max_turns']}\n\nتوپ پیش توست. چه حرکتی می‌زنی؟"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💥 DIRECT SHOT", callback_data="action_shoot")],
+        [InlineKeyboardButton(text="🎯 PRECISION PASS", callback_data="action_pass")],
+        [InlineKeyboardButton(text="🏃 DRIBBLE", callback_data="action_dribble")]
+    ])
     await callback.message.edit_text(banner, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
 
-@dp.callback_query(F.data == "start_2v2_now")
-async def start_2v2_now(callback: types.CallbackQuery):
-    data = start_2v2_match(callback.from_user.id)
-    if data == "need_2_cards": return await callback.answer("❌ حداقل ۲ کارت نیاز داری!", show_alert=True)
-    banner = f"👥 **مسابقه ۲ در ۲!**\n🆚 {data['npc_name']}\n⏱️ نوبت ۱/{data['max_turns']}\n🔵 ۰ - ۰ 🔴\n\nتوپ پیش توست. (حمله ترکیبی قوی‌تره!)"
-    kb_list = [[InlineKeyboardButton(text="⚽ شوت", callback_data="action_shoot")], [InlineKeyboardButton(text="🏃 دریبل", callback_data="action_dribble")], [InlineKeyboardButton(text="🎯 پاس", callback_data="action_pass")]]
-    if check_synergy(callback.from_user.id): kb_list.insert(0, [InlineKeyboardButton(text="🔥 حمله ترکیبی", callback_data="action_combo")])
-    await callback.message.edit_text(banner, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_list), parse_mode="Markdown")
+@dp.callback_query(F.data == "start_team_battle")
+async def start_team_battle_handler(callback: types.CallbackQuery):
+    data = start_team_battle(callback.from_user.id)
+    if data == "need_3_cards": return await callback.answer("❌ برای تیم بتل حداقل ۳ کارت نیاز داری!", show_alert=True)
+    
+    banner = f"🛡️ **تیم بتل شروع شد!**\n🆚 حریف: **{data['npc_name']}**\n⚡ تکنیک ستاره تو: **{data['player_technique']}**\n⏱️ نوبت ۱/{data['max_turns']}\n\nتوپ پیش توست. چه حرکتی می‌زنی؟"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💥 DIRECT SHOT", callback_data="action_shoot")],
+        [InlineKeyboardButton(text="🎯 PRECISION PASS", callback_data="action_pass")],
+        [InlineKeyboardButton(text="🏃 DRIBBLE", callback_data="action_dribble")]
+    ])
+    await callback.message.edit_text(banner, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
 
-@dp.callback_query(F.data.in_(["action_shoot", "action_dribble", "action_pass", "action_combo"]))
+@dp.callback_query(F.data.in_(["action_shoot", "action_dribble", "action_pass"]))
 async def handle_match_action(callback: types.CallbackQuery):
     action = callback.data.split("_")[1] 
-    jealousy = check_teammate_jealousy(callback.from_user.id)
+    player = get_player(callback.from_user.id)
     
-    if jealousy != "no_team" and jealousy["status"] == "betrayed":
-        text = f"⚠️ **خیانت!** {jealousy['name']} توپ رو لو داد!\n\n"
-        result = resolve_turn(callback.from_user.id, "pass")
-        result['text'] = text
+    duel_result = resolve_duel(
+        callback.from_user.id,
+        player_char_name=player['current_match_state']['player_star'],
+        player_technique=player['current_match_state']['player_technique'],
+        player_power=player['current_match_state']['player_power'],
+        npc_name=player['current_match_state']['npc_name'],
+        npc_power=player['current_match_state']['npc_power'],
+        action=action
+    )
+    
+    if duel_result['success']:
+        player['current_match_state']['score_player'] += 1
     else:
-        synergy = check_synergy(callback.from_user.id)
-        if action == "combo" and synergy:
-            result = resolve_turn(callback.from_user.id, "shoot") 
-            if random.randint(1, 100) <= 80:
-                result['state']['score_player'] += 1 
-                result['text'] = f"🔥 **{synergy['name']}** فعال شد! (۲ گل)"
-            else:
-                result['text'] = "❌ حمله ترکیبی شکست خورد!"
-        else:
-            result = resolve_turn(callback.from_user.id, action)
-        
-    state = result['state']
-    banner = f"🏟️ **با {state['npc_name']}**\n⏱️ نوبت {state['turn']}/{state['max_turns']}\n🔵 {state['score_player']} - {state['score_npc']} 🔴\n-------------------------\n{result['text']}\n\n"
+        player['current_match_state']['score_npc'] += 1
+
+    player['current_match_state']['turn'] += 1
+    is_finished = player['current_match_state']['turn'] > player['current_match_state']['max_turns']
     
-    if not result['is_finished']:
-        banner += "توپ پیش توست."
-        kb_list = [[InlineKeyboardButton(text="⚽ شوت", callback_data="action_shoot")], [InlineKeyboardButton(text="🏃 دریبل", callback_data="action_dribble")], [InlineKeyboardButton(text="🎯 پاس", callback_data="action_pass")]]
-        if synergy: kb_list.insert(0, [InlineKeyboardButton(text=f"🔥 {synergy['name']}", callback_data="action_combo")])
-        kb = InlineKeyboardMarkup(inline_keyboard=kb_list)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('UPDATE players SET current_match_state = %s WHERE user_id = %s', (json.dumps(player['current_match_state']), callback.from_user.id))
+    conn.commit(); cur.close(); conn.close()
+    
+    state = player['current_match_state']
+    banner = f"🏟️ **{state['type'].upper()}**\n⏱️ نوبت {state['turn']}/{state['max_turns']}\n🔵 {state['score_player']} - {state['score_npc']} 🔴\n-------------------------\n{duel_result['text']}\n\n"
+    
+    if not is_finished:
+        banner += "توپ دوباره به پای توست."
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💥 DIRECT SHOT", callback_data="action_shoot")],
+            [InlineKeyboardButton(text="🎯 PRECISION PASS", callback_data="action_pass")],
+            [InlineKeyboardButton(text="🏃 DRIBBLE", callback_data="action_dribble")]
+        ])
     else:
         reward = finish_match_rewards(callback.from_user.id, state['score_player'], state['score_npc'])
-        match_res = "win" if state['score_player'] > state['score_npc'] else "lose"
-        
-        if match_res == "lose":
-            player = get_player(callback.from_user.id)
-            if player['in_shadow_league']:
-                shadow_league_result(callback.from_user.id, is_win=False)
-                banner += "\n\n🌑 **لیگ سایه:** باختی! روانت آسیب دید."
-            else:
-                enter_shadow_league(callback.from_user.id)
-                banner += "\n\n🌑 **تبعید!** به لیگ سایه فرستاده شدی. باید ۳ بار ببری."
-        else:
-            player = get_player(callback.from_user.id)
-            if player['in_shadow_league']:
-                res = shadow_league_result(callback.from_user.id, is_win=True)
-                if res == "freed": banner += "\n\n🔥 **آزاد شدی!** اِگوت به ۱۰۰ رسید!"
-                else: banner += f"\n\n🌑 **لیگ سایه:** {res.split('_')[1]} از ۳ برد."
-                    
-        coach = check_coach_mission(callback.from_user.id, match_res)
-        if coach == "success": banner += "\n\n🕵️‍♂️ **مربی راضی!** +پاداش"
-        elif coach == "failed": banner += "\n\n😡 **مربی ناراضی!** -اِگو"
-        
         banner += f"\n🏁 **پایان!**\n{reward}"
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚔️ مجدد", callback_data="start_match_now")], [InlineKeyboardButton(text="🔙 منو", callback_data="back_to_main")]])
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚔️ مجدد", callback_data="enter_match")], [InlineKeyboardButton(text="🔙 منو", callback_data="back_to_main")]])
 
     await callback.message.edit_text(banner, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
 
-@dp.callback_query(F.data == "coach_agenda")
-async def coach_agenda(callback: types.CallbackQuery):
-    mission = generate_coach_mission(callback.from_user.id)
-    text = f"🕵️‍♂️ **ماموریت مربی:**\n{mission['text']}\n\n⚠️ اگر انجام ندی، جریمه میشی!"
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]])
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
-    await callback.answer()
-
+# ==========================================
+# لیدربورد
+# ==========================================
 @dp.callback_query(F.data == "leaderboard")
 async def show_leaderboard(callback: types.CallbackQuery):
     top = get_leaderboard(10)
@@ -281,6 +286,9 @@ async def show_leaderboard(callback: types.CallbackQuery):
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
 
+# ==========================================
+# پنل مالک
+# ==========================================
 class AdminStates(StatesGroup):
     waiting_for_name = State()
     waiting_for_position = State()
@@ -292,7 +300,7 @@ class AdminStates(StatesGroup):
 @dp.message(Command("admin"))
 async def admin_panel(message: types.Message):
     if message.from_user.id != OWNER_ID: return await message.answer("⛔ دسترسی نداری.")
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="➕ کارت جدید", callback_data="admin_add_card")], [InlineKeyboardButton(text="🔙 بستن", callback_data="back_to_main")]])
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="➕ کارت جدید", callback_data="admin_add_card")], [InlineKeyboardButton(text="🖼️ تغییر عکس منو", callback_data="admin_set_image")], [InlineKeyboardButton(text="🔙 بستن", callback_data="back_to_main")]])
     await message.answer("👑 **پنل مالک**", reply_markup=kb, parse_mode="Markdown")
 
 @dp.callback_query(F.data == "admin_add_card")
@@ -343,6 +351,14 @@ async def process_image(message: types.Message, state: FSMContext):
     await message.answer(f"✅ **{data['name']}** ساخته شد!")
     await state.clear()
 
+@dp.callback_query(F.data == "admin_set_image")
+async def admin_set_image(callback: types.CallbackQuery):
+    if callback.from_user.id != OWNER_ID: return
+    await callback.message.edit_text("🖼️ برای تغییر عکس منو، باید آیدی عکس (file_id) رو ارسال کنی.\nبرای این کار، عکس رو برام بفرست تا کدش رو بهت بدم.")
+
+# ==========================================
+# اجرای نهایی
+# ==========================================
 async def main():
     init_db()
     seed_characters()
