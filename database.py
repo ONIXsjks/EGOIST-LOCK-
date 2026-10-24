@@ -656,3 +656,66 @@ def check_ego_recovery(user_id):
             cur.execute('UPDATE players SET current_ego = 2000, last_ego_update = NOW() WHERE user_id = %s', (user_id,))
             conn.commit(); cur.close(); conn.close(); return "recovered"
     cur.close(); conn.close(); return "not_recovered"
+def create_trade_offer(sender_id, receiver_id, sender_char_id, receiver_char_id):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('''INSERT INTO trade_offers (sender_id, receiver_id, sender_char_id, receiver_char_id) 
+                   VALUES (%s, %s, %s, %s) RETURNING offer_id''', 
+                (sender_id, receiver_id, sender_char_id, receiver_char_id))
+    offer_id = cur.fetchone()['offer_id']
+    conn.commit(); cur.close(); conn.close()
+    return offer_id
+
+def accept_trade_offer(offer_id):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT * FROM trade_offers WHERE offer_id = %s AND status = \'pending\'', (offer_id,))
+    offer = cur.fetchone()
+    if not offer: conn.close(); return "invalid_offer"
+    
+    # چک کردن اینکه کارت‌ها هنوز توی تیم هستن
+    cur.execute('SELECT team_json FROM players WHERE user_id = %s', (offer['sender_id'],))
+    sender = cur.fetchone()
+    cur.execute('SELECT team_json FROM players WHERE user_id = %s', (offer['receiver_id'],))
+    receiver = cur.fetchone()
+    
+    if offer['sender_char_id'] not in sender['team_json'] or offer['receiver_char_id'] not in receiver['team_json']:
+        conn.close(); return "cards_missing"
+        
+    sender['team_json'].remove(offer['sender_char_id']); sender['team_json'].append(offer['receiver_char_id'])
+    receiver['team_json'].remove(offer['receiver_char_id']); receiver['team_json'].append(offer['sender_char_id'])
+    
+    cur.execute('UPDATE players SET team_json = %s WHERE user_id = %s', (json.dumps(sender['team_json']), offer['sender_id']))
+    cur.execute('UPDATE players SET team_json = %s WHERE user_id = %s', (json.dumps(receiver['team_json']), offer['receiver_id']))
+    cur.execute('UPDATE trade_offers SET status = \'accepted\' WHERE offer_id = %s', (offer_id,))
+    
+    conn.commit(); cur.close(); conn.close()
+    return "success"
+
+def create_legendary_boss(name, power, reward_black, reward_normal):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('UPDATE legendary_bosses SET is_active = FALSE')
+    cur.execute('''INSERT INTO legendary_bosses (name, power, hp, reward_black, reward_normal, is_active) 
+                   VALUES (%s, %s, 1000, %s, %s, TRUE)''', (name, power, reward_black, reward_normal))
+    conn.commit(); cur.close(); conn.close()
+
+def get_legendary_boss():
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT * FROM legendary_bosses WHERE is_active = TRUE ORDER BY boss_id DESC LIMIT 1')
+    boss = cur.fetchone(); cur.close(); conn.close(); return boss
+
+def fight_legendary_boss(user_id, boss_id, damage_dealt):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT * FROM legendary_bosses WHERE boss_id = %s AND is_active = TRUE', (boss_id,))
+    boss = cur.fetchone()
+    if not boss: conn.close(); return "no_boss"
+    
+    new_hp = boss['hp'] - damage_dealt
+    if new_hp <= 0:
+        cur.execute('UPDATE legendary_bosses SET hp = 0, is_active = FALSE WHERE boss_id = %s', (boss_id,))
+        cur.execute('UPDATE players SET black_coins = black_coins + %s, normal_coins = normal_coins + %s WHERE user_id = %s', 
+                    (boss['reward_black'], boss['reward_normal'], user_id))
+        conn.commit(); cur.close(); conn.close()
+        return {"status": "killed", "reward_black": boss['reward_black'], "reward_normal": boss['reward_normal']}
+    else:
+        cur.execute('UPDATE legendary_bosses SET hp = %s WHERE boss_id = %s', (new_hp, boss_id))
+        conn.commit(); cur.close(); conn.close()
+        return {"status": "damaged", "remaining_hp": new_hp}
