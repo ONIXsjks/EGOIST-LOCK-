@@ -19,7 +19,8 @@ from database import (
     unlock_skill_db, get_unlocked_skills, create_event, get_active_event, fight_custom_boss,
     use_wild_card, get_player_damage,
     check_synergy, check_teammate_jealousy, generate_coach_mission, check_coach_mission,
-    attack_with_technique, check_ego_recovery
+    attack_with_technique, check_ego_recovery,
+    upgrade_card_duplicate, buy_from_black_market, check_flow_state
 )
 from seed_data import seed_characters
 
@@ -46,11 +47,12 @@ def main_menu_keyboard():
         [InlineKeyboardButton(text="🕵️‍♂️ COACH AGENDA", callback_data="coach_agenda")],
         [InlineKeyboardButton(text="🎯 SELECT CHARACTER", callback_data="select_main_char")],
         [InlineKeyboardButton(text="🏋️ TRAINING", callback_data="training_menu")],
+        [InlineKeyboardButton(text="🖤 BLACK MARKET", callback_data="black_market")],
+        [InlineKeyboardButton(text="🏆 TOP PLAYERS", callback_data="leaderboard")],
         [InlineKeyboardButton(text="📊 MY PROFILE", callback_data="my_profile")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
-# ✅ تابع جدید برای جلوگیری از خطای ویرایش عکس
 async def safe_edit_message(callback: types.CallbackQuery, text: str, reply_markup=None, parse_mode="Markdown"):
     try:
         if callback.message.photo:
@@ -82,10 +84,33 @@ async def cmd_start(message: types.Message):
         await message.answer_photo(photo=menu_image, caption=welcome, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
     else:
         await message.answer(welcome, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+
 @dp.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: types.CallbackQuery):
     text = "🔵 **منوی اصلی بلو لاک**\n\nچه کاری می‌خوای انجام بدی؟"
     await safe_edit_message(callback, text, reply_markup=main_menu_keyboard())
+    await callback.answer()
+
+@dp.callback_query(F.data == "leaderboard")
+async def show_leaderboard(callback: types.CallbackQuery):
+    players = get_leaderboard(10)
+    if not players:
+        text = "🏆 **تاپ پلیرها**\n\nهنوز هیچ بازیکنی در لیست نیست!"
+    else:
+        text = "🏆 **۱۰ بازیکن برتر بلو لاک**\n-------------------------\n"
+        for i, p in enumerate(players, 1):
+            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+            username = p.get('username', 'Unknown')
+            level = p.get('level', 1)
+            xp = p.get('xp', 0)
+            text += f"{medal} **{username}** | Lv.{level} | XP: {xp}\n"
+        
+        my_rank = get_player_rank(callback.from_user.id)
+        if my_rank:
+            text += f"\n-------------------------\n📍 رتبه شما: **{my_rank}**"
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
+    await safe_edit_message(callback, text, reply_markup=kb)
     await callback.answer()
 
 @dp.callback_query(F.data == "my_profile")
@@ -119,7 +144,6 @@ async def show_profile(callback: types.CallbackQuery):
     except Exception as e:
         await safe_edit_message(callback, f"⚠️ خطا در دریافت پروفایل.\n(Error: {str(e)})")
     await callback.answer()
-
 @dp.callback_query(F.data == "select_main_char")
 async def select_main_char(callback: types.CallbackQuery):
     team = get_player_team(callback.from_user.id)
@@ -151,6 +175,18 @@ async def roll_gacha(callback: types.CallbackQuery):
     result = perform_gacha(callback.from_user.id, cost=100)
     if result == "no_coins": return await callback.answer("❌ سکه کافی نداری!", show_alert=True)
     if result == "no_chars": return await callback.answer("❌ خطا: کارت‌ها در دیتابیس نیستند.", show_alert=True)
+    
+    team = get_player_team(callback.from_user.id)
+    duplicate = next((c for c in team if c['char_id'] == result['char_id']), None)
+    if duplicate:
+        caption = f"🔄 **کارت تکراری!**\n\nشما کارت **{result['name']}** رو دوباره گرفتی.\nآیا می‌خوای کارت رو آپگرید کنی؟ (قدرت +5)"
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💪 آپگرید (قدرت +5)", callback_data=f"upgrade_card_{result['char_id']}")],
+            [InlineKeyboardButton(text="❌ رد کردن", callback_data="gacha_shop")]
+        ])
+        await safe_edit_message(callback, caption, reply_markup=kb)
+        return
+
     emoji = {"Legendary": "🔴", "Epic": "🟣", "Rare": "🔵"}.get(result['rarity'], "⚪")
     caption = f"🎉 **کارت جدید!**\n\n{emoji} **{result['name']}**\n📍 {result['position']}\n⚡ {result['technique']}\n💪 قدرت: {result['base_power']}\n"
     if result['is_cursed']: caption += "\n⚠️ **نفرین‌شده!**"
@@ -163,6 +199,16 @@ async def roll_gacha(callback: types.CallbackQuery):
     else:
         await safe_edit_message(callback, caption, reply_markup=kb)
     await callback.answer()
+
+@dp.callback_query(F.data.startswith("upgrade_card_"))
+async def upgrade_card(callback: types.CallbackQuery):
+    char_id = int(callback.data.split("_")[2])
+    result = upgrade_card_duplicate(callback.from_user.id, char_id)
+    if result == "success":
+        await callback.answer("✅ کارت با موفقیت آپگرید شد! (قدرت +5)", show_alert=True)
+    else:
+        await callback.answer("❌ خطا در آپگرید کارت!", show_alert=True)
+    await gacha_shop(callback)
 
 @dp.callback_query(F.data == "manage_team")
 async def manage_team(callback: types.CallbackQuery):
@@ -277,6 +323,31 @@ async def action_train(callback: types.CallbackQuery):
     await callback.answer(msg, show_alert=True)
     await training_menu(callback)
 
+@dp.callback_query(F.data == "black_market")
+async def black_market(callback: types.CallbackQuery):
+    player = get_player(callback.from_user.id)
+    text = f"🖤 **بازار سیاه**\n\nسکه سیاه شما: {player['black_coins']}\n\nاینجا می‌تونی با سکه سیاه، آیتم‌های خاص بخری:"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎟️ بلیط گاچا لجندری (50 🖤)", callback_data="buy_legendary_ticket")],
+        [InlineKeyboardButton(text="💪 افزایش قدرت کل تیم (+10) (30 🖤)", callback_data="buy_power_boost")],
+        [InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]
+    ])
+    await safe_edit_message(callback, text, reply_markup=kb)
+    await callback.answer()
+
+@dp.callback_query(F.data == "buy_legendary_ticket")
+async def buy_legendary_ticket(callback: types.CallbackQuery):
+    result = buy_from_black_market(callback.from_user.id, "legendary_ticket")
+    if result == "no_coins": return await callback.answer("❌ سکه سیاه کافی نداری!", show_alert=True)
+    await callback.answer("✅ بلیط لجندری خریداری شد!", show_alert=True)
+    await black_market(callback)
+
+@dp.callback_query(F.data == "buy_power_boost")
+async def buy_power_boost(callback: types.CallbackQuery):
+    result = buy_from_black_market(callback.from_user.id, "power_boost")
+    if result == "no_coins": return await callback.answer("❌ سکه سیاه کافی نداری!", show_alert=True)
+    await callback.answer("✅ قدرت تیمت افزایش پیدا کرد!", show_alert=True)
+    await black_market(callback)
 class AdminStates(StatesGroup):
     waiting_for_name = State()
     waiting_for_position = State()
@@ -393,6 +464,7 @@ async def process_event_reward_normal(message: types.Message, state: FSMContext)
     create_event(data['name'], data['power'], data['reward_black'], data['reward_normal'])
     await message.answer(f"✅ **ایونت {data['name']} ساخته شد!**")
     await state.clear()
+
 @dp.callback_query(F.data == "admin_add_card")
 async def admin_add_card(callback: types.CallbackQuery, state: FSMContext):
     if callback.from_user.id != OWNER_ID: return
