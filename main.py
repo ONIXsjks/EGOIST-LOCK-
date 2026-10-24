@@ -11,13 +11,12 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-# ایمپورت‌های دیتابیس (get_db_connection حذف شد و supabase اضافه شد)
 from database import (
     init_db, get_player, create_player, perform_gacha, start_new_match, start_2v2_match,
     resolve_turn, check_synergy, check_teammate_jealousy, finish_match_rewards,
     get_player_team, remove_from_team, rest_player, train_player, generate_coach_mission, 
     check_coach_mission, get_leaderboard, get_player_rank, enter_shadow_league, 
-    shadow_league_result, use_wild_card, supabase
+    shadow_league_result, use_wild_card, get_db_connection
 )
 from seed_data import seed_characters
 
@@ -28,22 +27,14 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# ==========================================
-# وب‌سرور Flask (برای Render)
-# ==========================================
 app = Flask(__name__)
-
 @app.route('/')
-def health():
-    return "Bot is running!"
+def health(): return "Bot is running!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
-# ==========================================
-# منوها و دکمه‌ها
-# ==========================================
 def main_menu_keyboard():
     kb = [
         [InlineKeyboardButton(text="🏟️ ورود به زمین مسابقه", callback_data="enter_match")],
@@ -57,9 +48,6 @@ def main_menu_keyboard():
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
-# ==========================================
-# هندلرهای اصلی و پروفایل
-# ==========================================
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     user_id = message.from_user.id
@@ -88,9 +76,6 @@ async def show_profile(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]])
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
-# ==========================================
-# گاچا و مدیریت تیم
-# ==========================================
 @dp.callback_query(F.data == "gacha_shop")
 async def gacha_shop(callback: types.CallbackQuery):
     text = "🎰 **بازار گاچا**\n\nبا ۱۰۰ سکه شانست رو امتحان کن!\n🔴 Legendary: ۳٪\n🟣 Epic: ۲۲٪\n🔵 Rare: ۷۵٪"
@@ -145,9 +130,6 @@ async def delete_character(callback: types.CallbackQuery):
         await callback.answer("🗑️ حذف شد!", show_alert=True)
         await manage_team(callback)
 
-# ==========================================
-# تمرین، استراحت و وایلد کارت
-# ==========================================
 @dp.callback_query(F.data == "training_menu")
 async def training_menu(callback: types.CallbackQuery):
     player = get_player(callback.from_user.id)
@@ -190,9 +172,6 @@ async def burn_card(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]])
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
-# ==========================================
-# مسابقات (۱v۱ و ۲v۲) و لیگ سایه
-# ==========================================
 @dp.callback_query(F.data == "enter_match")
 async def enter_match(callback: types.CallbackQuery):
     text = "🏟️ **ورود به زمین**\n\nنوع مسابقه:"
@@ -230,26 +209,17 @@ async def handle_match_action(callback: types.CallbackQuery):
     
     if jealousy != "no_team" and jealousy["status"] == "betrayed":
         text = f"⚠️ **خیانت!** {jealousy['name']} توپ رو لو داد!\n\n"
-        player = get_player(callback.from_user.id)
-        state = player['current_match_state']
-        if isinstance(state, str): state = json.loads(state)
-        state['score_npc'] += 1; state['turn'] += 1
-        supabase.table('players').update({'current_match_state': state}).eq('user_id', callback.from_user.id).execute()
-        result = {"text": text, "state": state, "is_finished": state['turn'] > state['max_turns']}
+        result = resolve_turn(callback.from_user.id, "pass")
+        result['text'] = text
     else:
         synergy = check_synergy(callback.from_user.id)
         if action == "combo" and synergy:
-            player = get_player(callback.from_user.id)
-            state = player['current_match_state']
-            if isinstance(state, str): state = json.loads(state)
-            is_2v2 = state.get("is_2v2", False)
-            if random.randint(1, 100) <= (95 if is_2v2 else 80):
-                state['score_player'] += 2; text = f"🔥 **{synergy['name']}** فعال شد! (۲ گل)"
+            result = resolve_turn(callback.from_user.id, "shoot") 
+            if random.randint(1, 100) <= 80:
+                result['state']['score_player'] += 1 
+                result['text'] = f"🔥 **{synergy['name']}** فعال شد! (۲ گل)"
             else:
-                state['score_npc'] += 1; text = "❌ حمله ترکیبی شکست خورد!"
-            state['turn'] += 1
-            supabase.table('players').update({'current_match_state': state}).eq('user_id', callback.from_user.id).execute()
-            result = {"text": text, "state": state, "is_finished": state['turn'] > state['max_turns']}
+                result['text'] = "❌ حمله ترکیبی شکست خورد!"
         else:
             result = resolve_turn(callback.from_user.id, action)
         
@@ -311,9 +281,6 @@ async def show_leaderboard(callback: types.CallbackQuery):
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
 
-# ==========================================
-# پنل مالک
-# ==========================================
 class AdminStates(StatesGroup):
     waiting_for_name = State()
     waiting_for_position = State()
@@ -366,26 +333,21 @@ async def process_image(message: types.Message, state: FSMContext):
     image_id = message.photo[-1].file_id if message.photo else None
     if not image_id and message.text.lower() != "skip": return await message.answer("⚠️ عکس یا skip.")
     data = await state.get_data()
-    supabase.table('characters').insert({
-        'name': data['name'], 'position': data['position'], 'technique': data['technique'],
-        'base_power': data['base_power'], 'rarity': data['rarity'], 'is_cursed': False,
-        'synergy_tag': 'custom', 'image_url': image_id
-    }).execute()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('''
+        INSERT INTO characters (name, position, technique, base_power, rarity, is_cursed, synergy_tag, image_url) 
+        VALUES (%s, %s, %s, %s, %s, FALSE, 'custom', %s)
+    ''', (data['name'], data['position'], data['technique'], data['base_power'], data['rarity'], image_id))
+    conn.commit(); cur.close(); conn.close()
     await message.answer(f"✅ **{data['name']}** ساخته شد!")
     await state.clear()
 
-# ==========================================
-# اجرای نهایی
-# ==========================================
 async def main():
     init_db()
     seed_characters()
     print("🚀 ربات روشن شد...")
-    
-    # اجرای وب‌سرور Flask در یک ترد جداگانه (برای اینکه Render پورت باز ببینه)
     threading.Thread(target=run_flask, daemon=True).start()
-    
-    # اجرای ربات تلگرام
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
