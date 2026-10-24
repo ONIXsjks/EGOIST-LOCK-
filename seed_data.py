@@ -3,7 +3,6 @@ from database import get_db_connection
 def seed_characters():
     conn = get_db_connection()
     cur = conn.cursor()
-    
     cur.execute("SELECT COUNT(*) FROM characters")
     if cur.fetchone()['count'] > 0:
         print("⚠️ کاراکترها از قبل وجود دارند.")
@@ -21,7 +20,6 @@ def seed_characters():
 
     for char in characters_data:
         cur.execute('''INSERT INTO characters (name, position, technique, base_power, rarity, is_cursed, synergy_tag) VALUES (%s, %s, %s, %s, %s, %s, %s)''', char)
-    
     conn.commit(); cur.close(); conn.close()
     print(f"✅ {len(characters_data)} کاراکتر با موفقیت وارد دیتابیس شد.")
 
