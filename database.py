@@ -1,14 +1,23 @@
 import json
 import random
 import os
+import httpx
 from supabase import create_client, Client
 
-# 🔴 آدرس اصلی پروژه (نه Pooler)
+# 🔴 آدرس اصلی پروژه
 SUPABASE_URL = "https://njyntqrsyxjbcnmghsg.supabase.co"
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# اتصال به دیتابیس
+# تنظیمات httpx برای حل مشکل DNS در Render
+# با استفاده از http2 و تایم‌اوت بیشتر سعی می‌کنیم اتصال پایدارتری داشته باشیم
+http_client = httpx.Client(
+    transport=httpx.HTTPTransport(retries=3),
+    timeout=30.0,
+    follow_redirects=True
+)
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase.postgrest.session = http_client
 
 def get_player(user_id):
     response = supabase.table('players').select('*').eq('user_id', user_id).execute()
