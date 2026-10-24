@@ -1,68 +1,81 @@
 import json
 import random
 import os
-from supadns import create_smart_client as create_client
-from supabase import Client
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
-# 🔴 آدرس اصلی پروژه
-SUPABASE_URL = "https://njyntqrsyxjbcnmghsg.supabase.co"
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+# 🔴 پسورد خودت رو اینجا جایگزین [YOUR-PASSWORD] کن
+DATABASE_URL = "postgresql://postgres.hjynfqrsyxjbchmghsg:[YOUR-PASSWORD]@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
 
-# استفاده از create_smart_client برای حل خودکار مشکل DNS (IPv6 به IPv4)
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+def get_db_connection():
+    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
 def get_player(user_id):
-    response = supabase.table('players').select('*').eq('user_id', user_id).execute()
-    return response.data[0] if response.data else None
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    cur.close(); conn.close()
+    return player
 
 def create_player(user_id, username):
-    data = {'user_id': user_id, 'username': username}
-    response = supabase.table('players').select('*').eq('user_id', user_id).execute()
-    if not response.data:
-        supabase.table('players').insert(data).execute()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM players WHERE user_id = %s', (user_id,))
+    if not cur.fetchone():
+        cur.execute('INSERT INTO players (user_id, username) VALUES (%s, %s)', (user_id, username))
+        conn.commit()
+    cur.close(); conn.close()
 
 def init_db():
-    print("✅ اتصال به Supabase برقرار است.")
+    print("✅ اتصال به Supabase (Pooler) برقرار است.")
 
 def perform_gacha(user_id, cost=100):
-    player = get_player(user_id)
-    if not player: return "no_player"
-    if player['normal_coins'] < cost: return "no_coins"
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT normal_coins, team_json FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if not player: cur.close(); conn.close(); return "no_player"
+    if player['normal_coins'] < cost: cur.close(); conn.close(); return "no_coins"
 
     new_coins = player['normal_coins'] - cost
-    supabase.table('players').update({'normal_coins': new_coins}).eq('user_id', user_id).execute()
+    cur.execute('UPDATE players SET normal_coins = %s WHERE user_id = %s', (new_coins, user_id))
 
     roll = random.random()
     if roll <= 0.03: rarity = 'Legendary'
     elif roll <= 0.25: rarity = 'Epic'
     else: rarity = 'Rare'
 
-    char_response = supabase.table('characters').select('*').eq('rarity', rarity).execute()
-    if not char_response.data: return "no_chars"
-    
-    char = random.choice(char_response.data)
+    cur.execute('SELECT * FROM characters WHERE rarity = %s ORDER BY RANDOM() LIMIT 1', (rarity,))
+    char = cur.fetchone()
+    if not char: 
+        conn.rollback(); cur.close(); conn.close(); return "no_chars"
     
     team = player['team_json'] if player['team_json'] else []
     team.append(char['char_id'])
-    supabase.table('players').update({'team_json': team}).eq('user_id', user_id).execute()
-    return char
+    cur.execute('UPDATE players SET team_json = %s WHERE user_id = %s', (json.dumps(team), user_id))
+    conn.commit(); cur.close(); conn.close()
+    return dict(char)
 
 def rest_player(user_id):
-    player = get_player(user_id)
-    if player['normal_coins'] < 30: return "no_coins"
-    updates = {
-        'fatigue': max(0, player['fatigue'] - 40),
-        'pressure': max(0, player['pressure'] - 40),
-        'sanity': min(100, player['sanity'] + 30),
-        'normal_coins': player['normal_coins'] - 30
-    }
-    supabase.table('players').update(updates).eq('user_id', user_id).execute()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT fatigue, pressure, sanity, normal_coins FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if player['normal_coins'] < 30: cur.close(); conn.close(); return "no_coins"
+    
+    cur.execute('''UPDATE players SET fatigue = %s, pressure = %s, sanity = %s, normal_coins = %s WHERE user_id = %s''',
+                 (max(0, player['fatigue'] - 40), max(0, player['pressure'] - 40), min(100, player['sanity'] + 30), player['normal_coins'] - 30, user_id))
+    conn.commit(); cur.close(); conn.close()
     return "success"
 
 def train_player(user_id):
-    player = get_player(user_id)
-    if player['normal_coins'] < 50: return "no_coins"
-    if player['fatigue'] >= 90: return "too_tired"
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT fatigue, normal_coins, xp, level FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if player['normal_coins'] < 50: cur.close(); conn.close(); return "no_coins"
+    if player['fatigue'] >= 90: cur.close(); conn.close(); return "too_tired"
 
     new_xp = player['xp'] + 15
     level = player['level']
@@ -72,27 +85,28 @@ def train_player(user_id):
         level += 1
         level_up = True
 
-    updates = {
-        'fatigue': min(100, player['fatigue'] + 30),
-        'normal_coins': player['normal_coins'] - 50,
-        'xp': new_xp,
-        'level': level
-    }
-    supabase.table('players').update(updates).eq('user_id', user_id).execute()
+    cur.execute('''UPDATE players SET fatigue = %s, normal_coins = %s, xp = %s, level = %s WHERE user_id = %s''',
+                 (min(100, player['fatigue'] + 30), player['normal_coins'] - 50, new_xp, level, user_id))
+    conn.commit(); cur.close(); conn.close()
     return {"status": "success", "xp": 15, "level_up": level_up, "new_level": level}
 
 def start_new_match(user_id):
-    player = get_player(user_id)
-    if not player or not player['team_json']: return "no_team"
-    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT ego, team_json FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if not player or not player['team_json']:
+        cur.close(); conn.close(); return "no_team"
+        
     team_ids = player['team_json']
-    chars = supabase.table('characters').select('*').in_('char_id', team_ids).execute().data
+    cur.execute('SELECT base_power, is_cursed FROM characters WHERE char_id = ANY(%s)', (team_ids,))
+    chars = cur.fetchall()
     
     player_power = sum([c['base_power'] for c in chars]) / len(chars) if chars else 50
     cursed_count = sum([1 for c in chars if c['is_cursed']])
     
     if cursed_count > 0:
-        supabase.table('players').update({'sanity': max(0, 100 - (cursed_count * 10))}).eq('user_id', user_id).execute()
+        cur.execute('UPDATE players SET sanity = %s WHERE user_id = %s', (max(0, 100 - (cursed_count * 10)), user_id))
 
     npc_name = random.choice(["Tiger Team", "Kaiser's Team", "Blue Lock 11", "U-20 Japan"])
     npc_power = random.randint(60, 95)
@@ -102,20 +116,25 @@ def start_new_match(user_id):
         "score_player": 0, "score_npc": 0, "turn": 1, "max_turns": 5, "is_2v2": False
     }
     
-    supabase.table('players').update({'current_match_state': match_state}).eq('user_id', user_id).execute()
+    cur.execute('UPDATE players SET current_match_state = %s WHERE user_id = %s', (json.dumps(match_state), user_id))
+    conn.commit(); cur.close(); conn.close()
     return match_state
 
 def start_2v2_match(user_id):
-    player = get_player(user_id)
-    if len(player['team_json']) < 2: return "need_2_cards"
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT ego, team_json FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if len(player['team_json']) < 2: cur.close(); conn.close(); return "need_2_cards"
     
     match_team_ids = player['team_json'][:2]
-    chars = supabase.table('characters').select('*').in_('char_id', match_team_ids).execute().data
+    cur.execute('SELECT base_power, is_cursed FROM characters WHERE char_id = ANY(%s)', (match_team_ids,))
+    chars = cur.fetchall()
     player_power = sum([c['base_power'] for c in chars]) / len(chars)
     cursed_count = sum([1 for c in chars if c['is_cursed']])
     
     if cursed_count > 0:
-        supabase.table('players').update({'sanity': max(0, 100 - (cursed_count * 10))}).eq('user_id', user_id).execute()
+        cur.execute('UPDATE players SET sanity = %s WHERE user_id = %s', (max(0, 100 - (cursed_count * 10)), user_id))
 
     npc_name = random.choice(["تیم کایزر و نس", "تیم سائه و شیدو", "تیم ایساگی و باچیرا"])
     npc_power = random.randint(70, 100)
@@ -125,11 +144,15 @@ def start_2v2_match(user_id):
         "score_player": 0, "score_npc": 0, "turn": 1, "max_turns": 3, "is_2v2": True
     }
     
-    supabase.table('players').update({'current_match_state': match_state}).eq('user_id', user_id).execute()
+    cur.execute('UPDATE players SET current_match_state = %s WHERE user_id = %s', (json.dumps(match_state), user_id))
+    conn.commit(); cur.close(); conn.close()
     return match_state
 
 def resolve_turn(user_id, action):
-    player = get_player(user_id)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT ego, current_match_state FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
     state = player['current_match_state']
     if isinstance(state, str): state = json.loads(state)
     
@@ -159,14 +182,20 @@ def resolve_turn(user_id, action):
         result_text = "❌ **شکست خوردی!** حریف ضدحمله کرد."
 
     state['turn'] += 1
-    supabase.table('players').update({'current_match_state': state}).eq('user_id', user_id).execute()
+    cur.execute('UPDATE players SET current_match_state = %s WHERE user_id = %s', (json.dumps(state), user_id))
+    conn.commit(); cur.close(); conn.close()
     return {"success": True, "text": result_text, "state": state, "is_finished": state['turn'] > state['max_turns']}
 
 def check_synergy(user_id):
-    player = get_player(user_id)
-    if not player or not player['team_json']: return None
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT team_json FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if not player or not player['team_json']: cur.close(); conn.close(); return None
     
-    chars = supabase.table('characters').select('synergy_tag').in_('char_id', player['team_json']).execute().data
+    cur.execute('SELECT synergy_tag FROM characters WHERE char_id = ANY(%s)', (player['team_json'],))
+    chars = cur.fetchall()
+    cur.close(); conn.close()
     tags = [c['synergy_tag'] for c in chars]
     combos = [
         {"tags": ["isagi", "bachira"], "name": "حمله ترکیبی: ایساگی و باچیرا"},
@@ -179,10 +208,16 @@ def check_synergy(user_id):
     return None
 
 def check_teammate_jealousy(user_id):
-    player = get_player(user_id)
-    if not player or not player['team_json']: return "no_team"
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT ego, team_json FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if not player or not player['team_json']: cur.close(); conn.close(); return "no_team"
     
-    chars = supabase.table('characters').select('name, synergy_tag').in_('char_id', player['team_json']).execute().data
+    cur.execute('SELECT name, synergy_tag FROM characters WHERE char_id = ANY(%s)', (player['team_json'],))
+    chars = cur.fetchall()
+    cur.close(); conn.close()
+    
     jealousy_chance = 30 if player['ego'] > 70 else 15 if player['ego'] > 50 else 0
     for c in chars:
         if c['synergy_tag'] in ['shidou', 'rin', 'kaiser', 'barou', 'karasu', 'lorenzo']:
@@ -193,7 +228,11 @@ def check_teammate_jealousy(user_id):
     return {"status": "loyal"}
 
 def finish_match_rewards(user_id, score_player, score_npc):
-    player = get_player(user_id)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT normal_coins, xp, level FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    
     if score_player > score_npc: reward_coins, reward_xp, result_msg = 50, 20, "🎉 **تو بردی!**\n+۵۰ سکه\n+۲۰ XP"
     elif score_player == score_npc: reward_coins, reward_xp, result_msg = 20, 10, "🤝 **مساوی!**\n+۲۰ سکه\n+۱۰ XP"
     else: reward_coins, reward_xp, result_msg = 5, 5, "💀 **باختی!**\n+۵ سکه\n+۵ XP"
@@ -206,100 +245,127 @@ def finish_match_rewards(user_id, score_player, score_npc):
         level += 1
         level_up_msg = f"\n\n🌟 **سطح {level}!**"
         
-    supabase.table('players').update({
-        'normal_coins': player['normal_coins'] + reward_coins, 
-        'xp': new_xp, 
-        'level': level
-    }).eq('user_id', user_id).execute()
-    
+    cur.execute('UPDATE players SET normal_coins = %s, xp = %s, level = %s WHERE user_id = %s', 
+                 (player['normal_coins'] + reward_coins, new_xp, level, user_id))
+    conn.commit(); cur.close(); conn.close()
     return result_msg + level_up_msg
 
 def generate_coach_mission(user_id):
-    active = supabase.table('coach_missions').select('*').eq('player_id', user_id).eq('is_active', True).execute().data
-    if active: return active[0]
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM coach_missions WHERE player_id = %s AND is_active = TRUE', (user_id,))
+    active = cur.fetchone()
+    if active: cur.close(); conn.close(); return dict(active)
     
     missions = [{"type": "lose_on_purpose", "target": "any", "text": "در بازی بعدی بباز."},
                 {"type": "take_shots", "target": "any", "text": "در بازی بعدی، حداقل ۳ بار خودت شوت بزن."}]
     mission = random.choice(missions)
-    mission['player_id'] = user_id
-    supabase.table('coach_missions').insert(mission).execute()
+    
+    cur.execute('INSERT INTO coach_missions (player_id, mission_type, target_name) VALUES (%s, %s, %s)', (user_id, mission['type'], mission['target']))
+    conn.commit(); cur.close(); conn.close()
     return mission
 
 def check_coach_mission(user_id, match_result):
-    mission = supabase.table('coach_missions').select('*').eq('player_id', user_id).eq('is_active', True).execute().data
-    if not mission: return "no_mission"
-    mission = mission[0]
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM coach_missions WHERE player_id = %s AND is_active = TRUE', (user_id,))
+    mission = cur.fetchone()
+    if not mission: cur.close(); conn.close(); return "no_mission"
     
     success = (mission['mission_type'] == "lose_on_purpose" and match_result == "lose")
-    player = get_player(user_id)
+    cur.execute('SELECT ego, pressure, normal_coins FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
     
     if success:
-        supabase.table('players').update({
-            'ego': min(100, player['ego'] + 15), 
-            'normal_coins': player['normal_coins'] + 100
-        }).eq('user_id', user_id).execute()
-        supabase.table('coach_missions').update({'is_active': False, 'is_completed': True}).eq('mission_id', mission['mission_id']).execute()
-        return "success"
+        cur.execute('UPDATE players SET ego = %s, normal_coins = %s WHERE user_id = %s', (min(100, player['ego'] + 15), player['normal_coins'] + 100, user_id))
+        cur.execute('UPDATE coach_missions SET is_active = FALSE, is_completed = TRUE WHERE mission_id = %s', (mission['mission_id'],))
+        conn.commit(); cur.close(); conn.close(); return "success"
     else:
-        supabase.table('players').update({
-            'ego': max(0, player['ego'] - 20), 
-            'pressure': min(100, player['pressure'] + 30)
-        }).eq('user_id', user_id).execute()
-        supabase.table('coach_missions').update({'is_active': False}).eq('mission_id', mission['mission_id']).execute()
-        return "failed"
+        cur.execute('UPDATE players SET ego = %s, pressure = %s WHERE user_id = %s', (max(0, player['ego'] - 20), min(100, player['pressure'] + 30), user_id))
+        cur.execute('UPDATE coach_missions SET is_active = FALSE WHERE mission_id = %s', (mission['mission_id'],))
+        conn.commit(); cur.close(); conn.close(); return "failed"
 
 def enter_shadow_league(user_id):
-    supabase.table('players').update({'in_shadow_league': True, 'shadow_wins': 0, 'sanity': 50}).eq('user_id', user_id).execute()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('UPDATE players SET in_shadow_league = TRUE, shadow_wins = 0, sanity = 50 WHERE user_id = %s', (user_id,))
+    conn.commit(); cur.close(); conn.close()
 
 def shadow_league_result(user_id, is_win):
-    player = get_player(user_id)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT shadow_wins, sanity FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    
     if is_win:
         new_wins = player['shadow_wins'] + 1
         if new_wins >= 3:
-            supabase.table('players').update({'in_shadow_league': False, 'shadow_wins': 0, 'ego': 100}).eq('user_id', user_id).execute()
-            return "freed"
-        supabase.table('players').update({'shadow_wins': new_wins}).eq('user_id', user_id).execute()
-        return f"win_{new_wins}"
+            cur.execute('UPDATE players SET in_shadow_league = FALSE, shadow_wins = 0, ego = 100 WHERE user_id = %s', (user_id,))
+            conn.commit(); cur.close(); conn.close(); return "freed"
+        cur.execute('UPDATE players SET shadow_wins = %s WHERE user_id = %s', (new_wins, user_id))
+        conn.commit(); cur.close(); conn.close(); return f"win_{new_wins}"
     else:
-        supabase.table('players').update({'shadow_wins': 0, 'sanity': max(0, player['sanity'] - 40)}).eq('user_id', user_id).execute()
-        return "lose"
+        cur.execute('UPDATE players SET shadow_wins = 0, sanity = %s WHERE user_id = %s', (max(0, player['sanity'] - 40), user_id))
+        conn.commit(); cur.close(); conn.close(); return "lose"
 
 def use_wild_card(user_id, char_id_to_burn):
-    player = get_player(user_id)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT team_json FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
     team = player['team_json'] if player['team_json'] else []
-    if char_id_to_burn not in team: return "not_in_team"
+    if char_id_to_burn not in team: cur.close(); conn.close(); return "not_in_team"
     
     team.remove(char_id_to_burn)
-    legendary = supabase.table('characters').select('*').eq('rarity', 'Legendary').execute().data
-    if not legendary: return "no_legendary"
+    cur.execute('SELECT * FROM characters WHERE rarity = "Legendary" ORDER BY RANDOM() LIMIT 1')
+    legendary = cur.fetchone()
+    if not legendary: cur.close(); conn.close(); return "no_legendary"
     
-    new_char = random.choice(legendary)
-    team.append(new_char['char_id'])
-    supabase.table('players').update({'team_json': team}).eq('user_id', user_id).execute()
-    return new_char
+    team.append(legendary['char_id'])
+    cur.execute('UPDATE players SET team_json = %s WHERE user_id = %s', (json.dumps(team), user_id))
+    conn.commit(); cur.close(); conn.close()
+    return dict(legendary)
 
 def get_player_team(user_id):
-    player = get_player(user_id)
-    if not player or not player['team_json']: return []
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT team_json FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if not player or not player['team_json']: cur.close(); conn.close(); return []
     
-    chars = supabase.table('characters').select('*').in_('char_id', player['team_json']).execute().data
-    return chars
+    cur.execute('SELECT * FROM characters WHERE char_id = ANY(%s)', (player['team_json'],))
+    chars = cur.fetchall()
+    cur.close(); conn.close()
+    return [dict(c) for c in chars]
 
 def remove_from_team(user_id, char_id):
-    player = get_player(user_id)
-    team = player['team_json'] if player['team_json'] else []
-    if char_id in team:
-        team.remove(char_id)
-        supabase.table('players').update({'team_json': team}).eq('user_id', user_id).execute()
-        return True
-    return False
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT team_json FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if player and player['team_json']:
+        team = player['team_json']
+        if char_id in team:
+            team.remove(char_id)
+            cur.execute('UPDATE players SET team_json = %s WHERE user_id = %s', (json.dumps(team), user_id))
+            conn.commit(); cur.close(); conn.close(); return True
+    cur.close(); conn.close(); return False
 
 def get_leaderboard(limit=10):
-    response = supabase.table('players').select('username, level, xp').order('level', desc=True).order('xp', desc=True).limit(limit).execute()
-    return response.data
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT username, level, xp FROM players ORDER BY level DESC, xp DESC LIMIT %s', (limit,))
+    players = cur.fetchall()
+    cur.close(); conn.close()
+    return [dict(p) for p in players]
 
 def get_player_rank(user_id):
-    player = get_player(user_id)
-    if not player: return None
-    response = supabase.table('players').select('user_id', count='exact').or_(f"level.gt.{player['level']},and(level.eq.{player['level']},xp.gt.{player['xp']})").execute()
-    return response.count + 1 if response.count is not None else 1
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT level, xp FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if not player: cur.close(); conn.close(); return None
+    cur.execute('SELECT COUNT(*) + 1 FROM players WHERE level > %s OR (level = %s AND xp > %s)', (player['level'], player['level'], player['xp']))
+    rank = cur.fetchone()['count']
+    cur.close(); conn.close()
+    return rank
