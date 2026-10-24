@@ -3,8 +3,8 @@ import random
 import os
 from supabase import create_client, Client
 
-# 🔴 آدرس Pooler برای حل مشکل DNS در Render (پشتیبانی از IPv4)
-SUPABASE_URL = "https://aws-0-ap-south-1.pooler.supabase.com"
+# 🔴 آدرس اصلی پروژه (نه Pooler)
+SUPABASE_URL = "https://njyntqrsyxjbcnmghsg.supabase.co"
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 # اتصال به دیتابیس
@@ -21,7 +21,7 @@ def create_player(user_id, username):
         supabase.table('players').insert(data).execute()
 
 def init_db():
-    print("✅ اتصال به Supabase (Pooler) برقرار است.")
+    print("✅ اتصال به Supabase برقرار است.")
 
 def perform_gacha(user_id, cost=100):
     player = get_player(user_id)
