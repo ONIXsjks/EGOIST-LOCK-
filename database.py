@@ -490,4 +490,116 @@ def start_2v2_match(user_id):
 
 def enter_shadow_league(user_id):
     conn = get_db_connection(); cur = conn.cursor()
-    cur.execute('UPDATE players SET in_shadow
+    cur.execute('UPDATE players SET in_shadow_league = TRUE, shadow_wins = 0, sanity = 50 WHERE user_id = %s', (user_id,))
+    conn.commit(); cur.close(); conn.close()
+
+def shadow_league_result(user_id, is_win):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT shadow_wins, sanity FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if is_win:
+        new_wins = player['shadow_wins'] + 1
+        if new_wins >= 3:
+            cur.execute('UPDATE players SET in_shadow_league = FALSE, shadow_wins = 0, ego = 100 WHERE user_id = %s', (user_id,))
+            conn.commit(); cur.close(); conn.close(); return "freed"
+        cur.execute('UPDATE players SET shadow_wins = %s WHERE user_id = %s', (new_wins, user_id))
+        conn.commit(); cur.close(); conn.close(); return f"win_{new_wins}"
+    else:
+        cur.execute('UPDATE players SET shadow_wins = 0, sanity = %s WHERE user_id = %s', (max(0, player['sanity'] - 40), user_id))
+        conn.commit(); cur.close(); conn.close(); return "lose"
+
+def create_event(boss_name, boss_power, reward_black, reward_normal):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('UPDATE active_events SET is_active = FALSE')
+    cur.execute('INSERT INTO active_events (boss_name, boss_power, reward_black, reward_normal) VALUES (%s, %s, %s, %s)', (boss_name, boss_power, reward_black, reward_normal))
+    conn.commit(); cur.close(); conn.close()
+
+def get_active_event():
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT * FROM active_events WHERE is_active = TRUE ORDER BY event_id DESC LIMIT 1')
+    event = cur.fetchone(); cur.close(); conn.close(); return event
+
+def fight_custom_boss(user_id, event_id):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT ego, team_json FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if not player or not player['team_json']: conn.close(); return "no_team"
+    cur.execute('SELECT base_power FROM characters WHERE char_id = ANY(%s)', (player['team_json'],))
+    chars = cur.fetchall()
+    player_power = sum([c['base_power'] for c in chars]) / len(chars) if chars else 50
+    cur.execute('SELECT * FROM active_events WHERE event_id = %s', (event_id,))
+    event = cur.fetchone()
+    if not event: conn.close(); return "no_event"
+    if player_power + random.randint(-15, 15) > event['boss_power']:
+        cur.execute('UPDATE players SET black_coins = black_coins + %s, normal_coins = normal_coins + %s WHERE user_id = %s', (event['reward_black'], event['reward_normal'], user_id))
+        conn.commit(); conn.close()
+        return {"success": True, "black": event['reward_black'], "normal": event['reward_normal'], "boss_name": event['boss_name'], "boss_power": event['boss_power'], "player_power": player_power}
+    else:
+        conn.close()
+        return {"success": False, "boss_name": event['boss_name'], "boss_power": event['boss_power'], "player_power": player_power}
+
+def finish_match_rewards(user_id, score_player, score_npc):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT normal_coins, xp, level FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if score_player > score_npc: reward_coins, reward_xp, result_msg = 50, 20, "🎉 **تو بردی!**\n+۵۰ سکه\n+۲۰ XP"
+    elif score_player == score_npc: reward_coins, reward_xp, result_msg = 20, 10, "🤝 **مساوی!**\n+۲۰ سکه\n+۱۰ XP"
+    else: reward_coins, reward_xp, result_msg = 5, 5, "💀 **باختی!**\n+۵ سکه\n+۵ XP"
+    new_xp = player['xp'] + reward_xp; level = player['level']; level_up_msg = ""
+    if new_xp >= 100: new_xp -= 100; level += 1; level_up_msg = f"\n\n🌟 **سطح {level}!**"
+    cur.execute('UPDATE players SET normal_coins = %s, xp = %s, level = %s WHERE user_id = %s', (player['normal_coins'] + reward_coins, new_xp, level, user_id))
+    conn.commit(); cur.close(); conn.close(); return result_msg + level_up_msg
+
+def check_synergy(user_id):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT team_json FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if not player or not player['team_json']: conn.close(); return None
+    cur.execute('SELECT synergy_tag FROM characters WHERE char_id = ANY(%s)', (player['team_json'],))
+    chars = cur.fetchall(); cur.close(); conn.close()
+    tags = [c['synergy_tag'] for c in chars]
+    combos = [{"tags": ["isagi", "bachira"], "name": "حمله ترکیبی: ایساگی و باچیرا"}, {"tags": ["sae", "rin"], "name": "حمله ترکیبی: برادران ایتوشی"}, {"tags": ["shidou", "sae"], "name": "حمله ترکیبی: سائه و شیدو"}, {"tags": ["nagi", "mikage"], "name": "حمله ترکیبی: ناگی و میکاگه"}]
+    for combo in combos:
+        if all(tag in tags for tag in combo["tags"]): return combo
+    return None
+
+def check_teammate_jealousy(user_id):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT ego, team_json FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if not player or not player['team_json']: conn.close(); return "no_team"
+    cur.execute('SELECT name, synergy_tag FROM characters WHERE char_id = ANY(%s)', (player['team_json'],))
+    chars = cur.fetchall(); cur.close(); conn.close()
+    jealousy_chance = 30 if player['ego'] > 70 else 15 if player['ego'] > 50 else 0
+    for c in chars:
+        if c['synergy_tag'] in ['shidou', 'rin', 'kaiser', 'barou', 'karasu', 'lorenzo']: jealousy_chance += 15 
+    if random.randint(1, 100) <= jealousy_chance:
+        return {"status": "betrayed", "name": random.choice(chars)['name']}
+    return {"status": "loyal"}
+
+def generate_coach_mission(user_id):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT * FROM coach_missions WHERE player_id = %s AND is_active = TRUE', (user_id,))
+    active = cur.fetchone()
+    if active: cur.close(); conn.close(); return dict(active)
+    missions = [{"type": "lose_on_purpose", "target": "any", "text": "در بازی بعدی بباز."}, {"type": "take_shots", "target": "any", "text": "در بازی بعدی، حداقل ۳ بار خودت شوت بزن."}]
+    mission = random.choice(missions)
+    cur.execute('INSERT INTO coach_missions (player_id, mission_type, target_name) VALUES (%s, %s, %s)', (user_id, mission['type'], mission['target']))
+    conn.commit(); cur.close(); conn.close(); return mission
+
+def check_coach_mission(user_id, match_result):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT * FROM coach_missions WHERE player_id = %s AND is_active = TRUE', (user_id,))
+    mission = cur.fetchone()
+    if not mission: cur.close(); conn.close(); return "no_mission"
+    success = (mission['mission_type'] == "lose_on_purpose" and match_result == "lose")
+    cur.execute('SELECT ego, pressure, normal_coins FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if success:
+        cur.execute('UPDATE players SET ego = %s, normal_coins = %s WHERE user_id = %s', (min(100, player['ego'] + 15), player['normal_coins'] + 100, user_id))
+        cur.execute('UPDATE coach_missions SET is_active = FALSE, is_completed = TRUE WHERE mission_id = %s', (mission['mission_id'],))
+        conn.commit(); cur.close(); conn.close(); return "success"
+    else:
+        cur.execute('UPDATE players SET ego = %s, pressure = %s WHERE user_id = %s', (max(0, player['ego'] - 20), min(100, player['pressure'] + 30), user_id))
+        cur.execute('UPDATE coach_missions SET is_active = FALSE WHERE mission_id = %s', (mission['mission_id'],))
+        conn.commit(); cur.close(); conn.close(); return "failed"
