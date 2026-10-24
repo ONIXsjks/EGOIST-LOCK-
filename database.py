@@ -47,35 +47,12 @@ def init_db():
     conn.commit(); cur.close(); conn.close()
 
 def init_new_systems():
-    """ساخت جدول‌های مربوط به سیستم‌های جدید (دستاوردها، ترید و...)"""
     conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('''CREATE TABLE IF NOT EXISTS achievements (ach_id TEXT PRIMARY KEY, name TEXT, description TEXT, icon TEXT, target INTEGER DEFAULT 1, reward_coins INTEGER DEFAULT 0)''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS player_achievements (user_id BIGINT, ach_id TEXT, progress INTEGER DEFAULT 0, completed BOOLEAN DEFAULT FALSE, PRIMARY KEY (user_id, ach_id))''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS trade_offers (offer_id SERIAL PRIMARY KEY, sender_id BIGINT, receiver_id BIGINT, sender_char_id INTEGER, receiver_char_id INTEGER, status TEXT DEFAULT 'pending', created_at TIMESTAMPTZ DEFAULT NOW())''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS legendary_bosses (boss_id SERIAL PRIMARY KEY, name TEXT, power INTEGER, hp INTEGER DEFAULT 1000, reward_black INTEGER, reward_normal INTEGER, is_active BOOLEAN DEFAULT TRUE, spawned_at TIMESTAMPTZ DEFAULT NOW())''')
     
-    # جدول دستاوردها
-    cur.execute('''CREATE TABLE IF NOT EXISTS achievements (
-        ach_id TEXT PRIMARY KEY, name TEXT, description TEXT, icon TEXT, target INTEGER DEFAULT 1, reward_coins INTEGER DEFAULT 0
-    )''')
-    
-    # جدول دستاوردهای کاربران
-    cur.execute('''CREATE TABLE IF NOT EXISTS player_achievements (
-        user_id BIGINT, ach_id TEXT, progress INTEGER DEFAULT 0, completed BOOLEAN DEFAULT FALSE,
-        PRIMARY KEY (user_id, ach_id)
-    )''')
-    
-    # جدول پیشنهادات ترید
-    cur.execute('''CREATE TABLE IF NOT EXISTS trade_offers (
-        offer_id SERIAL PRIMARY KEY, sender_id BIGINT, receiver_id BIGINT,
-        sender_char_id INTEGER, receiver_char_id INTEGER, status TEXT DEFAULT 'pending',
-        created_at TIMESTAMPTZ DEFAULT NOW()
-    )''')
-    
-    # جدول باس‌های افسانه‌ای
-    cur.execute('''CREATE TABLE IF NOT EXISTS legendary_bosses (
-        boss_id SERIAL PRIMARY KEY, name TEXT, power INTEGER, hp INTEGER DEFAULT 1000,
-        reward_black INTEGER, reward_normal INTEGER, is_active BOOLEAN DEFAULT TRUE,
-        spawned_at TIMESTAMPTZ DEFAULT NOW()
-    )''')
-    
-    # اضافه کردن دستاوردهای پیش‌فرض (اگر وجود نداشته باشند)
     default_achievements = [
         ('first_blood', 'اولین خون', 'اولین پیروزی در حمله', '🥇', 1, 100),
         ('boss_hunter', 'شکارچی باس', 'کشتن ۵ باس', '💀', 5, 500),
@@ -122,7 +99,6 @@ def add_achievement(user_id, ach_id, progress=1):
     conn.commit(); cur.close(); conn.close()
 
 def update_achievement_progress(user_id, ach_id, amount=1):
-    # این تابع برای افزایش پیشرفت است
     add_achievement(user_id, ach_id, amount)
     check_achievement_completion(user_id, ach_id)
 
@@ -163,16 +139,12 @@ def check_dream_team(user_id):
     tags = [c['synergy_tag'] for c in chars]
     cur.close(); conn.close()
     
-    # تیم Z
     if tags.count('isagi') >= 2 and 'bachira' in tags and 'nagi' in tags:
         return {"name": "تیم Z (ایساگی، باچیرا، ناگی)", "bonus": 20}
-    # تیم باستارد مونشن
     if tags.count('kaiser') >= 1 and tags.count('ness') >= 1:
         return {"name": "باستارد مونشن (کایزر، نس)", "bonus": 15}
-    # ترکیب ژاپنی
     if tags.count('isagi') >= 2 or tags.count('bachira') >= 2:
         return {"name": "حمله ترکیبی ژاپنی", "bonus": 10}
-    
     return None
 
 def ascend_card(user_id, char_id):
@@ -192,13 +164,11 @@ def ascend_card(user_id, char_id):
     
     if player['normal_coins'] < cost: conn.close(); return "no_coins"
     
-    # پیدا کردن کارت‌های هم‌رده برای سوزاندن
     cur.execute('SELECT char_id FROM characters WHERE rarity = %s AND char_id != %s AND char_id = ANY(%s) LIMIT 3', (needed_rarity, char_id, player['team_json']))
     burn_cards = [row['char_id'] for row in cur.fetchall()]
     
     if len(burn_cards) < 3: conn.close(); return "no_cards"
     
-    # حذف کارت‌های سوخته
     team = player['team_json']
     for c in burn_cards: team.remove(c)
     
@@ -228,6 +198,21 @@ def set_active_skin(user_id, char_id, skin_file_id):
     cur.execute('UPDATE players SET active_skin = %s WHERE user_id = %s', (json.dumps(active), user_id))
     conn.commit(); cur.close(); conn.close()
     return "success"
+
+# ✅ تابعی که ارور میداد اینجاست
+def use_wild_card(user_id, char_id_to_burn):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT team_json FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    team = player['team_json'] if player['team_json'] else []
+    if char_id_to_burn not in team: conn.close(); return "not_in_team"
+    team.remove(char_id_to_burn)
+    cur.execute('SELECT * FROM characters WHERE rarity = \'Legendary\' ORDER BY RANDOM() LIMIT 1')
+    legendary = cur.fetchone()
+    if not legendary: conn.close(); return "no_legendary"
+    team.append(legendary['char_id'])
+    cur.execute('UPDATE players SET team_json = %s WHERE user_id = %s', (json.dumps(team), user_id))
+    conn.commit(); cur.close(); conn.close(); return dict(legendary)
 def upgrade_card_duplicate(user_id, char_id):
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute('SELECT team_json FROM players WHERE user_id = %s', (user_id,))
@@ -375,16 +360,13 @@ def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
     elif rarity == 'Epic': min_dmg, max_dmg = (220, 300) if currency_type == "black" else (150, 190)
     else: min_dmg, max_dmg = (180, 250) if currency_type == "black" else (100, 150)
 
-    # اعمال آپگرید تمرین اختصاصی
     min_dmg += chosen_char['bonus_damage']; max_dmg += chosen_char['bonus_damage']
 
-    # اعمال بونوس تیم رویایی
     dream_bonus = check_dream_team(user_id)
     if dream_bonus:
         min_dmg = int(min_dmg * (1 + dream_bonus['bonus'] / 100))
         max_dmg = int(max_dmg * (1 + dream_bonus['bonus'] / 100))
 
-    # اعمال رویداد دراماتیک
     event = get_global_event()
     if event and event['type'] == 'rain_of_goals':
         min_dmg = int(min_dmg * 1.2); max_dmg = int(max_dmg * 1.2)
@@ -584,7 +566,6 @@ def fight_custom_boss(user_id, event_id):
     chars = cur.fetchall()
     player_power = sum([c['base_power'] for c in chars]) / len(chars) if chars else 50
     
-    # بونوس تیم رویایی روی باس هم اعمال میشه
     dream_bonus = check_dream_team(user_id)
     if dream_bonus: player_power = player_power * (1 + dream_bonus['bonus'] / 100)
     
@@ -610,7 +591,6 @@ def generate_coach_mission(user_id):
     cur.execute('INSERT INTO coach_missions (player_id, mission_type, target_name) VALUES (%s, %s, %s)', (user_id, mission['type'], mission['target']))
     conn.commit(); cur.close(); conn.close(); return mission
 
-# سیستم‌های باقی‌مانده که در main استفاده نشدن هم اینجا برای کامل بودن هستن
 def finish_match_rewards(user_id, score_player, score_npc):
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute('SELECT normal_coins, xp, level FROM players WHERE user_id = %s', (user_id,))
