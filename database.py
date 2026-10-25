@@ -19,7 +19,7 @@ def init_db():
         black_coins INTEGER DEFAULT 0, normal_coins INTEGER DEFAULT 100, team_json JSONB DEFAULT '[]'::jsonb,
         current_match_state JSONB DEFAULT NULL, in_shadow_league BOOLEAN DEFAULT FALSE, shadow_wins INTEGER DEFAULT 0,
         ego_broken_at TIMESTAMPTZ DEFAULT NULL, last_attack_at TIMESTAMPTZ DEFAULT NULL, 
-        last_match_action_at TIMESTAMPTZ DEFAULT NULL, current_ego INTEGER DEFAULT 3000, last_ego_update TIMESTAMPTZ DEFAULT NOW(),
+        last_match_action_at TIMESTAMPTZ DEFAULT NULL, current_ego INTEGER DEFAULT 1000, last_ego_update TIMESTAMPTZ DEFAULT NOW(),
         main_char_id INTEGER DEFAULT NULL
     )''')
     
@@ -157,7 +157,8 @@ def ascend_card(user_id, char_id):
     char = cur.fetchone()
     rarity = char['rarity']
     
-    if rarity == 'Legendary': conn.close(); return "max_rarity"
+    if rarity in ['World Class', 'Mythic']: conn.close(); return "max_rarity"
+    elif rarity == 'Legendary': cost = 1000; needed_rarity = 'Legendary'
     elif rarity == 'Epic': cost = 500; needed_rarity = 'Epic'
     else: cost = 300; needed_rarity = 'Rare'
     
@@ -171,7 +172,11 @@ def ascend_card(user_id, char_id):
     team = player['team_json']
     for c in burn_cards: team.remove(c)
     
-    new_rarity = 'Legendary' if rarity == 'Epic' else 'Epic'
+    if rarity == 'Rare': new_rarity = 'Epic'
+    elif rarity == 'Epic': new_rarity = 'Legendary'
+    elif rarity == 'Legendary': new_rarity = 'Mythic'
+    else: new_rarity = 'World Class'
+    
     cur.execute('UPDATE characters SET rarity = %s, base_power = base_power + 20 WHERE char_id = %s', (new_rarity, char_id))
     cur.execute('UPDATE players SET team_json = %s, normal_coins = normal_coins - %s WHERE user_id = %s', (json.dumps(team), cost, user_id))
     
@@ -345,11 +350,12 @@ def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
     if not chosen_char:
         conn.close(); return "no_technique"
 
+    # اگوی حریف بر اساس رنک کارت اصلیش در دیتابیس ذخیره شده، اینجا فقط می‌خونیم
     cur.execute('SELECT current_ego FROM players WHERE user_id = %s', (opponent_id,))
     opponent_data = cur.fetchone()
-    opponent_current_ego = opponent_data['current_ego'] if opponent_data else 2000
+    opponent_current_ego = opponent_data['current_ego'] if opponent_data else 1000
 
-    # رنک بندی جدید و دمیج (طبق درخواست شما)
+    # رنک بندی جدید و دمیج
     rarity = chosen_char['rarity']
     if rarity == 'World Class':
         min_dmg, max_dmg = (300, 350) if unlocked.get(matched_skill_name) != "black" else (350, 450)
@@ -430,6 +436,7 @@ def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
     event_text = "\n\n🌧️ **باران گل فعال است!** (دمیج ۲۰٪ افزایش یافت)" if event and event['type'] == 'rain_of_goals' else ""
     dream_text = f"\n\n👑 **بونوس تیم رویایی:** {dream_bonus['name']} (+{dream_bonus['bonus']}٪)" if dream_bonus else ""
 
+    # اگوی حریف توی پیام بر اساس رنکش حساب میشه، ولی اینجا برای نمایش از مقدار ۲۰۰۰ استفاده میکنیم
     return (
         f"{random.choice(attack_texts)}\n"
         f"☠️ **{chosen_char['name']}** ➔ 📍 **{opponent_name}**\n"
@@ -457,7 +464,7 @@ def perform_gacha(user_id, cost=100):
         cur.execute('UPDATE players SET normal_coins = %s WHERE user_id = %s', (player['normal_coins'] - cost, user_id))
     
     roll = random.random()
-    # شانس‌های جدید (World Class 1%, Mythic 4%, Legendary 10%, Epic 25%, Rare 60%)
+    # شانس‌های جدید
     if roll <= 0.01: rarity = 'World Class'
     elif roll <= 0.05: rarity = 'Mythic'
     elif roll <= 0.15: rarity = 'Legendary'
@@ -483,11 +490,22 @@ def perform_gacha(user_id, cost=100):
 
 def check_ego_recovery_all():
     conn = get_db_connection(); cur = conn.cursor()
+    # اگوی هر کس بر اساس رنک کارت اصلیش پر میشه
     cur.execute('''
-        UPDATE players 
-        SET current_ego = 3000, last_ego_update = NOW() 
-        WHERE current_ego <= 0 
-        AND (NOW() - last_ego_update) >= interval '15 minutes'
+        UPDATE players p
+        SET current_ego = CASE 
+            WHEN c.rarity = 'Rare' THEN 1000
+            WHEN c.rarity = 'Epic' THEN 2000
+            WHEN c.rarity = 'Legendary' THEN 3000
+            WHEN c.rarity = 'Mythic' THEN 4000
+            WHEN c.rarity = 'World Class' THEN 5000
+            ELSE 1000
+        END, 
+        last_ego_update = NOW() 
+        FROM characters c
+        WHERE p.main_char_id = c.char_id 
+        AND p.current_ego <= 0 
+        AND (NOW() - p.last_ego_update) >= interval '15 minutes'
     ''')
     conn.commit(); cur.close(); conn.close()
 def get_unlocked_skills(user_id):
