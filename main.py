@@ -640,6 +640,44 @@ async def admin_fill_ego(message: types.Message):
     conn.commit(); cur.close(); conn.close()
     await message.answer(f"✅ **اِگوی کاربر** با موفقیت پر شد!")
 
+class AdminStates(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_position = State()
+    waiting_for_technique = State()
+    waiting_for_power = State()
+    waiting_for_rarity = State()
+    waiting_for_image = State()
+    waiting_for_menu_image = State()
+    waiting_for_event_name = State()
+    waiting_for_event_power = State()
+    waiting_for_event_reward_black = State()
+    waiting_for_event_reward_normal = State()
+    waiting_for_char_to_change = State()
+    waiting_for_char_new_image = State()
+    waiting_for_skin_char = State()
+    waiting_for_skin_image = State()
+
+@dp.message(Command("admin"))
+async def admin_panel(message: types.Message):
+    if message.from_user.id != OWNER_ID: 
+        return await message.answer("⛔ دسترسی نداری.")
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ ADD NEW CARD", callback_data="admin_add_card")],
+        [InlineKeyboardButton(text="🖼️ CHANGE MENU IMAGE", callback_data="admin_set_image")],
+        [InlineKeyboardButton(text="🖼️ CHANGE CHARACTER IMAGE", callback_data="admin_change_char_image")],
+        [InlineKeyboardButton(text="🖼️ ADD SKIN", callback_data="admin_add_skin")],
+        [InlineKeyboardButton(text="🔥 CREATE EVENT", callback_data="admin_create_event")],
+        [InlineKeyboardButton(text="🌧️ DRAMATIC EVENTS", callback_data="admin_set_event")],
+        [InlineKeyboardButton(text="🪙 GIVE COINS (Reply)", callback_data="admin_give_coins")],
+        [InlineKeyboardButton(text="🖤 GIVE BLACK COINS (Reply)", callback_data="admin_give_black_coins")],
+        [InlineKeyboardButton(text="🚫 BAN USER (Reply)", callback_data="admin_ban")],
+        [InlineKeyboardButton(text="🔙 CLOSE", callback_data="back_to_main")]
+    ])
+    await message.answer("👑 **پنل مالک**", reply_markup=kb, parse_mode="Markdown")
+
+# ... (بقیه کدهای ادمین که توی پیام قبلی فرستادم رو هم همینجا زیرش پیست کن) ...
+
 async def main():
     init_db()
     seed_characters()
