@@ -345,6 +345,10 @@ def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
     if not chosen_char:
         conn.close(); return "no_technique"
 
+    cur.execute('SELECT current_ego FROM players WHERE user_id = %s', (opponent_id,))
+    opponent_data = cur.fetchone()
+    opponent_current_ego = opponent_data['current_ego'] if opponent_data else 2000
+
     # رنک بندی جدید و دمیج (طبق درخواست شما)
     rarity = chosen_char['rarity']
     if rarity == 'World Class':
@@ -453,10 +457,20 @@ def perform_gacha(user_id, cost=100):
         cur.execute('UPDATE players SET normal_coins = %s WHERE user_id = %s', (player['normal_coins'] - cost, user_id))
     
     roll = random.random()
-    rarity = 'Legendary' if roll <= 0.03 else 'Epic' if roll <= 0.25 else 'Rare'
+    # شانس‌های جدید (World Class 1%, Mythic 4%, Legendary 10%, Epic 25%, Rare 60%)
+    if roll <= 0.01: rarity = 'World Class'
+    elif roll <= 0.05: rarity = 'Mythic'
+    elif roll <= 0.15: rarity = 'Legendary'
+    elif roll <= 0.40: rarity = 'Epic'
+    else: rarity = 'Rare'
+    
     cur.execute('SELECT * FROM characters WHERE rarity = %s ORDER BY RANDOM() LIMIT 1', (rarity,))
     char = cur.fetchone()
-    if not char: conn.rollback(); cur.close(); conn.close(); return "no_chars"
+    if not char: 
+        cur.execute('SELECT * FROM characters WHERE rarity = \'Rare\' ORDER BY RANDOM() LIMIT 1')
+        char = cur.fetchone()
+        if not char: conn.rollback(); cur.close(); conn.close(); return "no_chars"
+
     team = player['team_json'] if player['team_json'] else []
     team.append(char['char_id'])
     cur.execute('UPDATE players SET team_json = %s WHERE user_id = %s', (json.dumps(team), user_id))
