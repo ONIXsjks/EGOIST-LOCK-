@@ -678,6 +678,64 @@ async def admin_panel(message: types.Message):
 
 # ... (بقیه کدهای ادمین که توی پیام قبلی فرستادم رو هم همینجا زیرش پیست کن) ...
 
+@dp.message(Command("reset_ego"))
+async def reset_my_ego(message: types.Message):
+    if message.from_user.id != OWNER_ID: 
+        return await message.answer("⛔ دسترسی نداری.")
+    
+    conn = get_db_connection(); cur = conn.cursor()
+    # اول اگوی خودت رو صفر میکنه (که کیل بشی)
+    cur.execute('UPDATE players SET current_ego = 0, last_ego_update = NOW() WHERE user_id = %s', (message.from_user.id,))
+    conn.commit()
+    
+    # بعد فوراً بر اساس رنک کارت اصلیت پر میکنه
+    cur.execute('''
+        UPDATE players p
+        SET current_ego = CASE 
+            WHEN c.rarity = 'Rare' THEN 1000
+            WHEN c.rarity = 'Epic' THEN 2000
+            WHEN c.rarity = 'Legendary' THEN 3000
+            WHEN c.rarity = 'Mythic' THEN 4000
+            WHEN c.rarity = 'World Class' THEN 5000
+            ELSE 1000
+        END, 
+        last_ego_update = NOW() 
+        FROM characters c
+        WHERE p.main_char_id = c.char_id AND p.user_id = %s
+    ''', (message.from_user.id,))
+    conn.commit(); cur.close(); conn.close()
+    
+    await message.answer("💀 **تو کیل شدی!**\nولی به لطف رنکت، اگوت دوباره خودکار پر شد! 🚀")
+
+@dp.message(Command("kill_everyone"))
+async def kill_everyone(message: types.Message):
+    if message.from_user.id != OWNER_ID: 
+        return await message.answer("⛔ دسترسی نداری.")
+    
+    conn = get_db_connection(); cur = conn.cursor()
+    # اگوی همه رو صفر میکنه
+    cur.execute('UPDATE players SET current_ego = 0, last_ego_update = NOW()')
+    conn.commit()
+    
+    # فوراً اگوی همه رو بر اساس رنکشون پر میکنه
+    cur.execute('''
+        UPDATE players p
+        SET current_ego = CASE 
+            WHEN c.rarity = 'Rare' THEN 1000
+            WHEN c.rarity = 'Epic' THEN 2000
+            WHEN c.rarity = 'Legendary' THEN 3000
+            WHEN c.rarity = 'Mythic' THEN 4000
+            WHEN c.rarity = 'World Class' THEN 5000
+            ELSE 1000
+        END, 
+        last_ego_update = NOW() 
+        FROM characters c
+        WHERE p.main_char_id = c.char_id
+    ''')
+    conn.commit(); cur.close(); conn.close()
+    
+    await message.answer("💀 **همه کیل شدند!**\nاگوی همه صفر شد و فوراً بر اساس رنکشون پر شد. 🚀")
+
 async def main():
     init_db()
     seed_characters()
