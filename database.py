@@ -658,3 +658,13 @@ def check_coach_mission(user_id, match_result):
         cur.execute('UPDATE players SET ego = %s, pressure = %s WHERE user_id = %s', (max(0, player['ego'] - 20), min(100, player['pressure'] + 30), user_id))
         cur.execute('UPDATE coach_missions SET is_active = FALSE WHERE mission_id = %s', (mission['mission_id'],))
         conn.commit(); cur.close(); conn.close(); return "failed"
+def check_ego_recovery(user_id):
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT current_ego, last_ego_update FROM players WHERE user_id = %s', (user_id,))
+    player = cur.fetchone()
+    if player['current_ego'] < 2000 and player['last_ego_update']:
+        time_passed = datetime.now(player['last_ego_update'].tzinfo) - player['last_ego_update']
+        if time_passed >= timedelta(minutes=15):
+            cur.execute('UPDATE players SET current_ego = 2000, last_ego_update = NOW() WHERE user_id = %s', (user_id,))
+            conn.commit(); cur.close(); conn.close(); return "recovered"
+    cur.close(); conn.close(); return "not_recovered"
