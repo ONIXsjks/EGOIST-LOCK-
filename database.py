@@ -326,35 +326,66 @@ def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
     check_ego_recovery_all()
     conn = get_db_connection(); cur = conn.cursor()
     
-    cur.execute('SELECT current_ego, team_json, xp, normal_coins, level, last_attack_at FROM players WHERE user_id = %s', (user_id,))
+    cur.execute('SELECT current_ego, team_json, xp, normal_coins, level, last_attack_at, main_char_id FROM players WHERE user_id = %s', (user_id,))
     player = cur.fetchone()
     
     if not player or player['current_ego'] <= 0:
         conn.close(); return "ego_broken"
 
-    cur.execute('SELECT name, technique, base_power, rarity, bonus_damage, cooldown_reduction FROM characters WHERE char_id = ANY(%s)', (player['team_json'],))
+    cur.execute('SELECT char_id, name, technique, base_power, rarity, bonus_damage, cooldown_reduction FROM characters WHERE char_id = ANY(%s)', (player['team_json'],))
     team_chars = cur.fetchall()
     unlocked = get_unlocked_skills(user_id)
     
     chosen_char = None
     matched_skill_name = None
     
+    # 1. اول چک میکنیم ببینیم تکنیک پایه‌ی کدوم کارته
     for char in team_chars:
         if char['technique'].lower() == technique_name.lower():
             chosen_char = char; matched_skill_name = char['technique']; break
+            
+    # 2. اگه تکنیک پایه نبود، چک میکنیم ببینیم این مهارت آنلاک شده مال کدوم کارته
     if not chosen_char:
         for skill_name, currency in unlocked.items():
             if skill_name.lower() == technique_name.lower():
-                chosen_char = team_chars[0]; matched_skill_name = skill_name; break
+                # ✅ اینجا باگ رو رفع کردیم: به جای team_chars[0]، کارت اصلی کاربر رو انتخاب میکنه
+                chosen_char = next((c for c in team_chars if c['char_id'] == player['main_char_id']), team_chars[0])
+                matched_skill_name = skill_name
+                break
                 
     if not chosen_char:
         conn.close(); return "no_technique"
 
-    cur.execute('SELECT current_ego FROM players WHERE user_id = %s', (opponent_id,))
+    # گرفتن اگوی حریف و رنک کارت اصلیش برای محاسبه سقف اگو
+    cur.execute('''
+        SELECT p.current_ego, c.rarity as main_rarity 
+        FROM players p 
+        LEFT JOIN characters c ON p.main_char_id = c.char_id 
+        WHERE p.user_id = %s
+    ''', (opponent_id,))
     opponent_data = cur.fetchone()
     opponent_current_ego = opponent_data['current_ego'] if opponent_data else 1000
+    opponent_rarity = opponent_data['main_rarity'] if opponent_data else 'Rare'
 
-    # رنک بندی جدید و دمیج
+    # سقف اگوی حریف
+    if opponent_rarity == 'World Class': opponent_max_ego = 5000
+    elif opponent_rarity == 'Mythic': opponent_max_ego = 4000
+    elif opponent_rarity == 'Legendary': opponent_max_ego = 3000
+    elif opponent_rarity == 'Epic': opponent_max_ego = 2000
+    else: opponent_max_ego = 1000
+
+    # سقف اگوی خودت
+    cur.execute('SELECT rarity FROM characters WHERE char_id = %s', (player['main_char_id'],))
+    my_rarity_data = cur.fetchone()
+    my_rarity = my_rarity_data['rarity'] if my_rarity_data else 'Rare'
+    
+    if my_rarity == 'World Class': my_max_ego = 5000
+    elif my_rarity == 'Mythic': my_max_ego = 4000
+    elif my_rarity == 'Legendary': my_max_ego = 3000
+    elif my_rarity == 'Epic': my_max_ego = 2000
+    else: my_max_ego = 1000
+
+    # رنک بندی و دمیج
     rarity = chosen_char['rarity']
     if rarity == 'World Class':
         min_dmg, max_dmg = (300, 350) if unlocked.get(matched_skill_name) != "black" else (350, 450)
@@ -364,7 +395,7 @@ def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
         min_dmg, max_dmg = (150, 200) if unlocked.get(matched_skill_name) != "black" else (250, 350)
     elif rarity == 'Epic':
         min_dmg, max_dmg = (100, 150) if unlocked.get(matched_skill_name) != "black" else (150, 250)
-    else: # Rare
+    else: 
         min_dmg, max_dmg = (80, 120) if unlocked.get(matched_skill_name) != "black" else (100, 200)
 
     min_dmg += chosen_char['bonus_damage']; max_dmg += chosen_char['bonus_damage']
@@ -441,9 +472,9 @@ def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
         f"Lv.{player['level']} · 『 {matched_skill_name} 』\n"
         f"{random.choice(defend_texts)}\n"
         f"💥 -{damage} 🔥 **CRIT** 🔥\n"
-        f"🧠 **Ego:** {opponent_name} {new_opponent_ego:,}/2,000\n"
+        f"🧠 **Ego:** {opponent_name} {new_opponent_ego:,}/{opponent_max_ego:,}\n"
         f"▭▭▭▭▭▭▭▭▭▭▭▭\n"
-        f"🧠 **Ego:** {chosen_char['name']} {new_player_ego:,}/2,000\n"
+        f"🧠 **Ego:** {chosen_char['name']} {new_player_ego:,}/{my_max_ego:,}\n"
         f"▭▭▭▭▭▭▭▭▭▭▭▭\n"
         f"⭐ +{earned_xp} XP · 🪙 +{earned_coins}"
         f"{dream_text}{event_text}{flow_text}{flow_text_attacker}"
@@ -679,9 +710,9 @@ def check_ego_recovery(user_id):
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute('SELECT current_ego, last_ego_update FROM players WHERE user_id = %s', (user_id,))
     player = cur.fetchone()
-    if player['current_ego'] < 2000 and player['last_ego_update']:
+    if player['current_ego'] < 1000 and player['last_ego_update']:
         time_passed = datetime.now(player['last_ego_update'].tzinfo) - player['last_ego_update']
         if time_passed >= timedelta(minutes=15):
-            cur.execute('UPDATE players SET current_ego = 2000, last_ego_update = NOW() WHERE user_id = %s', (user_id,))
+            cur.execute('UPDATE players SET current_ego = 1000, last_ego_update = NOW() WHERE user_id = %s', (user_id,))
             conn.commit(); cur.close(); conn.close(); return "recovered"
     cur.close(); conn.close(); return "not_recovered"
