@@ -4,12 +4,17 @@ def seed_characters():
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # پاک کردن کاراکترهای قبلی برای رفرش شدن دیتابیس (فقط برای بار اول)
-    cur.execute("TRUNCATE TABLE characters RESTART IDENTITY CASCADE")
-    
+    # چک میکنه اگه کاراکترها از قبل وجود دارن، کاری نکنه
+    cur.execute("SELECT COUNT(*) as count FROM characters")
+    if cur.fetchone()['count'] > 0:
+        print("⚠️ کاراکترها از قبل وجود دارند.")
+        cur.close()
+        conn.close()
+        return
+
     characters_data = [
         # ==========================================
-        # ⚪ World Class (جدید)
+        # ⚪ World Class
         # ==========================================
         ("Noel Noa", "FW", "Machine Dribble", 98, "World Class", False, "noa"),
         ("Julian Loki", "FW", "God Speed", 95, "World Class", False, "loki"),
@@ -21,7 +26,7 @@ def seed_characters():
         ("Pablo Cavasoz", "FW", "Agility", 84, "World Class", False, "cavasoz"),
 
         # ==========================================
-        # 🔴 Mythic (جدید)
+        # 🔴 Mythic
         # ==========================================
         ("Yoichi Isagi", "FW", "Direct Shot", 92, "Mythic", False, "isagi"),
         ("Michael Kaiser", "FW", "Kaiser Impact", 97, "Mythic", True, "kaiser"),
