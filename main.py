@@ -319,7 +319,7 @@ async def show_char_skills(callback: types.CallbackQuery):
         "Tsurugi Zantetsu": [("Explosive Acceleration", 500, "normal"), ("Left-Foot Shooting", 500, "normal"), ("Double Wing Boost", 500, "normal"), ("Bullet Train Maglev", 800, "normal"), ("Jet Counter", 5, "black"), ("Quick Reactions", 10, "black"), ("Acceleration", 15, "black")],
         "Fukaku Gen": [("Physique", 500, "normal"), ("Reactions", 500, "normal"), ("Goalkeeping", 500, "normal"), ("Dropkick", 800, "normal"), ("Reflexes", 5, "black"), ("Shot Stopping", 10, "black"), ("Goal Protection", 15, "black")],
         "Kazuma Nio": [("Dominant Physique", 500, "normal"), ("Man Marking", 500, "normal"), ("Physical Defense", 500, "normal"), ("Pressing", 800, "normal"), ("Defensive Duels", 5, "black"), ("Tight Marking", 10, "black"), ("Defensive Positioning", 15, "black")],
-        "Nijiro Nanase": [("Ambidexterity", 500, "normal"), ("Migrae Pass", 500, "normal"), ("Mirage Dribble", 500, "normal"), ("Adaptability", 800, "normal"), ("HOLY CRAP", 5, "black"), ("SO CLOSE", 10, "black"), ("DOG RIN", 15, "black")],
+        "Nijiro Nanase": [("Ambidexterity", 500, "normal"), ("Mirage Pass", 500, "normal"), ("Mirage Dribble", 500, "normal"), ("Adaptability", 800, "normal"), ("HOLY CRAP", 5, "black"), ("SO CLOSE", 10, "black"), ("DOG RIN", 15, "black")],
         "Ranze Kurona": [("CRODINATE", 500, "normal"), ("ZERO TURN SHOT", 500, "normal"), ("RAZOR CROSS", 500, "normal"), ("RAZOR DRIBBLE", 800, "normal"), ("PLANET HOTLINE", 5, "black"), ("ZERO DEGREE PASS", 10, "black"), ("LETS GO ISAGI", 15, "black")]
     }
     
