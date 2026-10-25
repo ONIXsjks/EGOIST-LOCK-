@@ -273,7 +273,6 @@ async def show_char_skills(callback: types.CallbackQuery):
     char_name = char['name']
     text = f"🌌 **قلمرو اگو - {char_name}**\n\nهر مهارت با سکه قابل باز کردنه. مهارت‌های پایین‌تر نیاز به سکه سیاه دارن!\n\n"
     
-    # دیکشنری کامل Ability ها
     skills_db = {
         "Noel Noa": [("AMBIDEXTROUS FINISH", 500, "normal"), ("MACHINE DRIBBLE", 500, "normal"), ("TACTICAL GENIUS", 500, "normal"), ("PERFECT EFFICIENCY", 800, "normal"), ("GUN VOLLEY", 5, "black"), ("YOU WILL FOLLOW", 10, "black"), ("BEST STRIKER", 15, "black")],
         "Julian Loki": [("BUT IM FAST", 500, "normal"), ("TORNADO SHOT", 500, "normal"), ("DIVINE SPRINTER", 500, "normal"), ("VELOCITY DASH", 800, "normal"), ("IS THIS OKAY?", 5, "black"), ("GOD SPRINTER", 10, "black"), ("TO SLOW", 15, "black")],
@@ -755,34 +754,6 @@ async def fight_custom(callback: types.CallbackQuery):
     await safe_edit_message(callback, text, reply_markup=kb)
     await callback.answer()
 
-@dp.callback_query(F.data == "active_event_menu")
-async def active_event_menu(callback: types.CallbackQuery):
-    event = get_active_event()
-    if not event:
-        text = "🔥 **ایونت فعالی وجود ندارد!**\nمنتظر بمانید تا ادمین ایونت جدیدی ایجاد کند."
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
-        return await safe_edit_message(callback, text, reply_markup=kb)
-    text = f"🔥 **ایونت فعال: {event['boss_name']}**\n-------------------------\n💀 قدرت باس: {event['boss_power']}\n🎁 جایزه: {event['reward_black']} 🖤 و {event['reward_normal']} 🪙\n\nآماده‌ای برای مبارزه؟"
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚔️ FIGHT BOSS", callback_data=f"fight_custom_{event['event_id']}")], [InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
-    await safe_edit_message(callback, text, reply_markup=kb)
-    await callback.answer()
-
-@dp.callback_query(F.data.startswith("fight_custom_"))
-async def fight_custom(callback: types.CallbackQuery):
-    event_id = int(callback.data.split("_")[2])
-    result = fight_custom_boss(callback.from_user.id, event_id)
-    if result == "no_team": return await callback.answer("❌ اول کارت بگیر!", show_alert=True)
-    if result == "no_event": return await callback.answer("❌ این ایونت منقضی شده!", show_alert=True)
-    if result['success']:
-        try: update_achievement_progress(callback.from_user.id, "boss_kills")
-        except: pass
-        text = f"🎉 **پیروزی بر {result['boss_name']}!**\n-------------------------\nقدرت تیم تو: {result['player_power']:.1f}\nقدرت باس: {result['boss_power']}\n\n🖤 +{result['black']} سکه سیاه\n🪙 +{result['normal']} سکه عادی"
-    else:
-        text = f"💀 **شکست در برابر {result['boss_name']}!**\n-------------------------\nقدرت تیم تو: {result['player_power']:.1f}\nقدرت باس: {result['boss_power']}\n\nتیمت رو قوی‌تر کن و دوباره برگرد."
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚔️ FIGHT AGAIN", callback_data=f"fight_custom_{event_id}")], [InlineKeyboardButton(text="🔙 MAIN MENU", callback_data="back_to_main")]])
-    await safe_edit_message(callback, text, reply_markup=kb)
-    await callback.answer()
-
 @dp.callback_query(F.data == "trade_menu")
 async def trade_menu(callback: types.CallbackQuery):
     text = "🔄 **سیستم ترید**\n\nبرای شروع ترید، روی پیام کاربر مورد نظر **ریپلای** کن و بنویس:\n`ترید`"
@@ -881,59 +852,38 @@ async def admin_fill_ego(message: types.Message):
     conn.commit(); cur.close(); conn.close()
     await message.answer(f"✅ **اِگوی کاربر** با موفقیت پر شد!")
 
-# ✅ دستورات ریست اگو
 @dp.message(Command("reset_ego"))
 async def reset_my_ego(message: types.Message):
     if message.from_user.id != OWNER_ID: 
         return await message.answer("⛔ دسترسی نداری.")
-    
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute('UPDATE players SET current_ego = 0, last_ego_update = NOW() WHERE user_id = %s', (message.from_user.id,))
     conn.commit()
-    
     cur.execute('''
-        UPDATE players p
-        SET current_ego = CASE 
-            WHEN c.rarity = 'Rare' THEN 1000
-            WHEN c.rarity = 'Epic' THEN 2000
-            WHEN c.rarity = 'Legendary' THEN 3000
-            WHEN c.rarity = 'Mythic' THEN 4000
-            WHEN c.rarity = 'World Class' THEN 5000
-            ELSE 1000
-        END, 
-        last_ego_update = NOW() 
-        FROM characters c
-        WHERE p.main_char_id = c.char_id AND p.user_id = %s
+        UPDATE players p SET current_ego = CASE 
+            WHEN c.rarity = 'Rare' THEN 1000 WHEN c.rarity = 'Epic' THEN 2000
+            WHEN c.rarity = 'Legendary' THEN 3000 WHEN c.rarity = 'Mythic' THEN 4000
+            WHEN c.rarity = 'World Class' THEN 5000 ELSE 1000 END, last_ego_update = NOW() 
+        FROM characters c WHERE p.main_char_id = c.char_id AND p.user_id = %s
     ''', (message.from_user.id,))
     conn.commit(); cur.close(); conn.close()
-    
     await message.answer("💀 **تو کیل شدی!**\nولی به لطف رنکت، اگوت دوباره خودکار پر شد! 🚀")
 
 @dp.message(Command("kill_everyone"))
 async def kill_everyone(message: types.Message):
     if message.from_user.id != OWNER_ID: 
         return await message.answer("⛔ دسترسی نداری.")
-    
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute('UPDATE players SET current_ego = 0, last_ego_update = NOW()')
     conn.commit()
-    
     cur.execute('''
-        UPDATE players p
-        SET current_ego = CASE 
-            WHEN c.rarity = 'Rare' THEN 1000
-            WHEN c.rarity = 'Epic' THEN 2000
-            WHEN c.rarity = 'Legendary' THEN 3000
-            WHEN c.rarity = 'Mythic' THEN 4000
-            WHEN c.rarity = 'World Class' THEN 5000
-            ELSE 1000
-        END, 
-        last_ego_update = NOW() 
-        FROM characters c
-        WHERE p.main_char_id = c.char_id
+        UPDATE players p SET current_ego = CASE 
+            WHEN c.rarity = 'Rare' THEN 1000 WHEN c.rarity = 'Epic' THEN 2000
+            WHEN c.rarity = 'Legendary' THEN 3000 WHEN c.rarity = 'Mythic' THEN 4000
+            WHEN c.rarity = 'World Class' THEN 5000 ELSE 1000 END, last_ego_update = NOW() 
+        FROM characters c WHERE p.main_char_id = c.char_id
     ''')
     conn.commit(); cur.close(); conn.close()
-    
     await message.answer("💀 **همه کیل شدند!**\nاگوی همه صفر شد و فوراً بر اساس رنکشون پر شد. 🚀")
 
 async def main():
