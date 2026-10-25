@@ -98,13 +98,11 @@ async def help_menu(callback: types.CallbackQuery):
         "❓ **راهنمای بازی بلو لاک**\n"
         "-------------------------\n"
         "🔹 **حمله:** روی پیام حریف ریپلای کن و اسم تکنیکت رو بنویس.\n"
-        "🔹 **دوئل شرطی:** روی پیام حریف ریپلای کن و بنویس `چالش` (شرط ۵۰ سکه).\n"
-        "🔹 **ترید:** روی پیام حریف ریپلای کن و بنویس `ترید` (کارت‌ها معاوضه میشن).\n"
+        "🔹 **دوئل شرطی:** روی پیام حریف ریپلای کن و بنویس `چالش`.\n"
+        "🔹 **ترید:** روی پیام حریف ریپلای کن و بنویس `ترید`.\n"
         "🔹 **نبرد دوستانه:** روی پیام حریف ریپلای کن و بنویس `نبرد دوستانه`.\n"
-        "🔹 **تیم رویایی:** ۳ کارت از یک تیم خاص توی ترکیب بذار تا بونوس دمیج بگیری.\n"
-        "🔹 **لول آپ کارت:** از قلمرو اگو، کارت‌های اضافی رو بسوزون تا رده کارتت بالا بره.\n"
-        "🔹 **دستاوردها:** با انجام کارهای خاص، نشان و جایزه بگیر.\n"
-        "🔹 **سکه سیاه:** از ایونت‌ها و باس‌ها به دست میاد."
+        "🔹 **تیم رویایی:** ۳ کارت با تگ مشترک بذار تا بونوس بگیری.\n"
+        "🔹 **لول آپ کارت:** کارت‌های اضافی رو بسوزون تا رده کارتت بالا بره."
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
     await safe_edit_message(callback, text, reply_markup=kb)
@@ -117,7 +115,7 @@ async def show_profile(callback: types.CallbackQuery):
         p = dict(player)
         text = (f"👤 پروفایل: {p.get('username', 'Unknown')}\n-------------------------\n"
                 f"📈 سطح: {p.get('level', 1)} | XP: {p.get('xp', 0)}\n"
-                f"🧠 اِگو: {p.get('current_ego', 2000)}/2000 | 🧘 روان: {p.get('sanity', 100)}\n"
+                f"🧠 اِگو: {p.get('current_ego', 1000)}/2000 | 🧘 روان: {p.get('sanity', 100)}\n"
                 f"⚡ خستگی: {p.get('fatigue', 0)} | 😰 فشار: {p.get('pressure', 0)}\n"
                 f"-------------------------\n🪙 سکه: {p.get('normal_coins', 0)}\n🖤 سکه سیاه: {p.get('black_coins', 0)}")
         
@@ -149,14 +147,9 @@ async def show_leaderboard(callback: types.CallbackQuery):
         text = "🏆 **۱۰ بازیکن برتر بلو لاک**\n-------------------------\n"
         for i, p in enumerate(players, 1):
             medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-            username = p.get('username', 'Unknown')
-            level = p.get('level', 1)
-            xp = p.get('xp', 0)
-            text += f"{medal} **{username}** | Lv.{level} | XP: {xp}\n"
-        
+            text += f"{medal} **{p.get('username', 'Unknown')}** | Lv.{p.get('level', 1)} | XP: {p.get('xp', 0)}\n"
         my_rank = get_player_rank(callback.from_user.id)
-        if my_rank:
-            text += f"\n-------------------------\n📍 رتبه شما: **{my_rank}**"
+        if my_rank: text += f"\n-------------------------\n📍 رتبه شما: **{my_rank}**"
     
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
     await safe_edit_message(callback, text, reply_markup=kb)
@@ -278,8 +271,9 @@ async def show_char_skills(callback: types.CallbackQuery):
     if not char: return await callback.answer("پیدا نشد!")
     
     char_name = char['name']
-    text = f"🌌 **قلمرو اگو - {char_name}**\n-------------------------\nهر مهارت با سکه قابل باز کردنه. مهارت‌های پایین‌تر نیاز به سکه سیاه دارن!\n\n"
+    text = f"🌌 **قلمرو اگو - {char_name}**\n\nهر مهارت با سکه قابل باز کردنه. مهارت‌های پایین‌تر نیاز به سکه سیاه دارن!\n\n"
     
+    # دیکشنری کامل Ability ها
     skills_db = {
         "Noel Noa": [("AMBIDEXTROUS FINISH", 500, "normal"), ("MACHINE DRIBBLE", 500, "normal"), ("TACTICAL GENIUS", 500, "normal"), ("PERFECT EFFICIENCY", 800, "normal"), ("GUN VOLLEY", 5, "black"), ("YOU WILL FOLLOW", 10, "black"), ("BEST STRIKER", 15, "black")],
         "Julian Loki": [("BUT IM FAST", 500, "normal"), ("TORNADO SHOT", 500, "normal"), ("DIVINE SPRINTER", 500, "normal"), ("VELOCITY DASH", 800, "normal"), ("IS THIS OKAY?", 5, "black"), ("GOD SPRINTER", 10, "black"), ("TO SLOW", 15, "black")],
@@ -323,7 +317,6 @@ async def show_char_skills(callback: types.CallbackQuery):
         "Ranze Kurona": [("CRODINATE", 500, "normal"), ("ZERO TURN SHOT", 500, "normal"), ("RAZOR CROSS", 500, "normal"), ("RAZOR DRIBBLE", 800, "normal"), ("PLANET HOTLINE", 5, "black"), ("ZERO DEGREE PASS", 10, "black"), ("LETS GO ISAGI", 15, "black")]
     }
     
-    # گرفتن مهارت‌های کارت یا حالت پیش‌فرض
     skills = skills_db.get(char_name, [
         (char['technique'], 500, "normal"), ("POWER SHOT", 500, "normal"), 
         ("QUICK DRIBBLE", 500, "normal"), ("DEFENSIVE STANCE", 800, "normal"), 
@@ -332,7 +325,6 @@ async def show_char_skills(callback: types.CallbackQuery):
     
     unlocked = get_unlocked_skills(callback.from_user.id)
     
-    # باز کردن خودکار ۴ مهارت اول
     for i in range(4):
         if i < len(skills):
             skill_name, cost, currency = skills[i]
@@ -487,6 +479,227 @@ async def buy_power_boost(callback: types.CallbackQuery):
     if result == "no_coins": return await callback.answer("❌ سکه سیاه کافی نداری!", show_alert=True)
     await callback.answer("✅ قدرت تیمت افزایش پیدا کرد!", show_alert=True)
     await black_market(callback)
+class AdminStates(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_position = State()
+    waiting_for_technique = State()
+    waiting_for_power = State()
+    waiting_for_rarity = State()
+    waiting_for_image = State()
+    waiting_for_menu_image = State()
+    waiting_for_event_name = State()
+    waiting_for_event_power = State()
+    waiting_for_event_reward_black = State()
+    waiting_for_event_reward_normal = State()
+    waiting_for_char_to_change = State()
+    waiting_for_char_new_image = State()
+    waiting_for_skin_char = State()
+    waiting_for_skin_image = State()
+
+@dp.message(Command("admin"))
+async def admin_panel(message: types.Message):
+    if message.from_user.id != OWNER_ID: 
+        return await message.answer("⛔ دسترسی نداری.")
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ ADD NEW CARD", callback_data="admin_add_card")],
+        [InlineKeyboardButton(text="🖼️ CHANGE MENU IMAGE", callback_data="admin_set_image")],
+        [InlineKeyboardButton(text="🖼️ CHANGE CHARACTER IMAGE", callback_data="admin_change_char_image")],
+        [InlineKeyboardButton(text="🖼️ ADD SKIN", callback_data="admin_add_skin")],
+        [InlineKeyboardButton(text="🔥 CREATE EVENT", callback_data="admin_create_event")],
+        [InlineKeyboardButton(text="🌧️ DRAMATIC EVENTS", callback_data="admin_set_event")],
+        [InlineKeyboardButton(text="🪙 GIVE COINS (Reply)", callback_data="admin_give_coins")],
+        [InlineKeyboardButton(text="🖤 GIVE BLACK COINS (Reply)", callback_data="admin_give_black_coins")],
+        [InlineKeyboardButton(text="🚫 BAN USER (Reply)", callback_data="admin_ban")],
+        [InlineKeyboardButton(text="🔙 CLOSE", callback_data="back_to_main")]
+    ])
+    await message.answer("👑 **پنل مالک**", reply_markup=kb, parse_mode="Markdown")
+
+@dp.callback_query(F.data == "admin_give_coins")
+async def admin_give_coins_menu(callback: types.CallbackQuery):
+    if callback.from_user.id != OWNER_ID: return
+    await safe_edit_message(callback, "🪙 روی پیام کاربر مورد نظر **ریپلای** کن و بنویس:\n`give [مقدار]`\nمثال: `give 500`")
+
+@dp.callback_query(F.data == "admin_give_black_coins")
+async def admin_give_black_coins_menu(callback: types.CallbackQuery):
+    if callback.from_user.id != OWNER_ID: return
+    await safe_edit_message(callback, "🖤 روی پیام کاربر مورد نظر **ریپلای** کن و بنویس:\n`giveblack [مقدار]`\nمثال: `giveblack 50`")
+
+@dp.callback_query(F.data == "admin_ban")
+async def admin_ban(callback: types.CallbackQuery):
+    if callback.from_user.id != OWNER_ID: return
+    await safe_edit_message(callback, "🚫 روی پیام کاربر مورد نظر **ریپلای** کن و بنویس:\n`ban`")
+
+@dp.callback_query(F.data == "admin_set_event")
+async def admin_set_event(callback: types.CallbackQuery):
+    if callback.from_user.id != OWNER_ID: return
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🌧️ باران گل (دمیج +20%)", callback_data="event_rain")],
+        [InlineKeyboardButton(text="🔥 خشم مربی (فشار زیاد)", callback_data="event_anger")],
+        [InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]
+    ])
+    await safe_edit_message(callback, "🔥 **کدوم رویداد دراماتیک رو فعال کنم؟**", reply_markup=kb)
+
+@dp.callback_query(F.data == "event_rain")
+async def event_rain(callback: types.CallbackQuery):
+    if callback.from_user.id != OWNER_ID: return
+    set_global_event("rain_of_goals", 10)
+    await callback.answer("✅ رویداد باران گل برای ۱۰ دقیقه فعال شد!", show_alert=True)
+
+@dp.callback_query(F.data == "event_anger")
+async def event_anger(callback: types.CallbackQuery):
+    if callback.from_user.id != OWNER_ID: return
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute("UPDATE players SET pressure = LEAST(100, pressure + 20)")
+    conn.commit(); cur.close(); conn.close()
+    await callback.answer("✅ فشار همه بازیکنا ۲۰ واحد افزایش یافت!", show_alert=True)
+
+@dp.callback_query(F.data == "admin_add_skin")
+async def admin_add_skin(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id != OWNER_ID: return
+    await state.set_state(AdminStates.waiting_for_skin_char)
+    await safe_edit_message(callback, "🖼️ اسم کاراکتری که می‌خوای براش اسکین بسازی رو بنویس:")
+
+@dp.message(AdminStates.waiting_for_skin_char)
+async def process_skin_char(message: types.Message, state: FSMContext):
+    char_name = message.text.strip()
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT char_id FROM characters WHERE name = %s', (char_name,))
+    char = cur.fetchone()
+    cur.close(); conn.close()
+    if not char: return await message.answer("⚠️ این کاراکتر پیدا نشد!")
+    await state.update_data(char_id=char['char_id'])
+    await state.set_state(AdminStates.waiting_for_skin_image)
+    await message.answer(f"✅ {char_name} پیدا شد. حالا عکس اسکین جدیدش رو بفرست:")
+
+@dp.message(AdminStates.waiting_for_skin_image)
+async def process_skin_image(message: types.Message, state: FSMContext):
+    if not message.photo: return await message.answer("⚠️ لطفاً یک عکس ارسال کن.")
+    file_id = message.photo[-1].file_id
+    data = await state.get_data()
+    add_skin_to_inventory(message.from_user.id, data['char_id'], file_id)
+    await message.answer("✅ اسکین ساخته شد و به اینونتوری شما اضافه شد!")
+    await state.clear()
+
+@dp.callback_query(F.data == "admin_set_image")
+async def admin_set_image(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id != OWNER_ID: return
+    await state.set_state(AdminStates.waiting_for_menu_image)
+    await safe_edit_message(callback, "🖼️ **لطفاً عکس جدید منو رو ارسال کن:**")
+
+@dp.message(AdminStates.waiting_for_menu_image)
+async def process_menu_image(message: types.Message, state: FSMContext):
+    if message.from_user.id != OWNER_ID: return
+    if not message.photo: return await message.answer("⚠️ لطفاً یک عکس ارسال کن.")
+    file_id = message.photo[-1].file_id
+    save_setting("main_menu_image", file_id)
+    await message.answer("✅ **عکس منو با موفقیت تغییر کرد!**")
+    await state.clear()
+
+@dp.callback_query(F.data == "admin_change_char_image")
+async def admin_change_char_image(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id != OWNER_ID: return
+    await state.set_state(AdminStates.waiting_for_char_to_change)
+    await safe_edit_message(callback, "🖼️ اسم کاراکتری که می‌خوای عکسش رو عوض کنی بنویس (مثلاً: Michael Kaiser):")
+
+@dp.message(AdminStates.waiting_for_char_to_change)
+async def process_char_to_change(message: types.Message, state: FSMContext):
+    char_name = message.text.strip()
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT char_id FROM characters WHERE name = %s', (char_name,))
+    char = cur.fetchone()
+    cur.close(); conn.close()
+    if not char: return await message.answer("⚠️ این کاراکتر پیدا نشد!")
+    await state.update_data(char_id=char['char_id'])
+    await state.set_state(AdminStates.waiting_for_char_new_image)
+    await message.answer(f"✅ {char_name} پیدا شد. حالا عکس جدیدش رو بفرست:")
+
+@dp.message(AdminStates.waiting_for_char_new_image)
+async def process_char_new_image(message: types.Message, state: FSMContext):
+    if not message.photo: return await message.answer("⚠️ لطفاً یک عکس ارسال کن.")
+    file_id = message.photo[-1].file_id
+    data = await state.get_data()
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('UPDATE characters SET image_url = %s WHERE char_id = %s', (file_id, data['char_id']))
+    conn.commit(); cur.close(); conn.close()
+    await message.answer("✅ عکس کاراکتر با موفقیت تغییر کرد!")
+    await state.clear()
+
+@dp.callback_query(F.data == "admin_create_event")
+async def admin_create_event(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id != OWNER_ID: return
+    await state.set_state(AdminStates.waiting_for_event_name)
+    await safe_edit_message(callback, "1️⃣ اسم باس جدید را وارد کن:")
+
+@dp.message(AdminStates.waiting_for_event_name)
+async def process_event_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text); await state.set_state(AdminStates.waiting_for_event_power)
+    await message.answer("2️⃣ قدرت باس (مثلاً 100):")
+
+@dp.message(AdminStates.waiting_for_event_power)
+async def process_event_power(message: types.Message, state: FSMContext):
+    if not message.text.isdigit(): return await message.answer("⚠️ عدد بده.")
+    await state.update_data(power=int(message.text)); await state.set_state(AdminStates.waiting_for_event_reward_black)
+    await message.answer("3️⃣ جایزه سکه سیاه (🖤):")
+
+@dp.message(AdminStates.waiting_for_event_reward_black)
+async def process_event_reward_black(message: types.Message, state: FSMContext):
+    if not message.text.isdigit(): return await message.answer("⚠️ عدد بده.")
+    await state.update_data(reward_black=int(message.text)); await state.set_state(AdminStates.waiting_for_event_reward_normal)
+    await message.answer("4️⃣ جایزه سکه عادی (🪙):")
+
+@dp.message(AdminStates.waiting_for_event_reward_normal)
+async def process_event_reward_normal(message: types.Message, state: FSMContext):
+    if not message.text.isdigit(): return await message.answer("⚠️ عدد بده.")
+    await state.update_data(reward_normal=int(message.text))
+    data = await state.get_data()
+    create_event(data['name'], data['power'], data['reward_black'], data['reward_normal'])
+    await message.answer(f"✅ **ایونت {data['name']} ساخته شد!**")
+    await state.clear()
+
+@dp.callback_query(F.data == "admin_add_card")
+async def admin_add_card(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id != OWNER_ID: return
+    await state.set_state(AdminStates.waiting_for_name)
+    await safe_edit_message(callback, "1️⃣ نام کاراکتر:")
+
+@dp.message(AdminStates.waiting_for_name)
+async def process_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text); await state.set_state(AdminStates.waiting_for_position)
+    await message.answer("2️⃣ پست (FW, MF, DF, GK):")
+
+@dp.message(AdminStates.waiting_for_position)
+async def process_position(message: types.Message, state: FSMContext):
+    await state.update_data(position=message.text.upper()); await state.set_state(AdminStates.waiting_for_technique)
+    await message.answer("3️⃣ تکنیک:")
+
+@dp.message(AdminStates.waiting_for_technique)
+async def process_tech(message: types.Message, state: FSMContext):
+    await state.update_data(technique=message.text); await state.set_state(AdminStates.waiting_for_power)
+    await message.answer("4️⃣ قدرت (1-100):")
+
+@dp.message(AdminStates.waiting_for_power)
+async def process_power(message: types.Message, state: FSMContext):
+    if not message.text.isdigit(): return await message.answer("⚠️ عدد بده.")
+    await state.update_data(base_power=int(message.text)); await state.set_state(AdminStates.waiting_for_rarity)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Rare", callback_data="rarity_Rare")], [InlineKeyboardButton(text="Epic", callback_data="rarity_Epic")], [InlineKeyboardButton(text="Legendary", callback_data="rarity_Legendary")]])
+    await message.answer("5️⃣ ریتی:", reply_markup=kb)
+
+@dp.callback_query(F.data.startswith("rarity_"), AdminStates.waiting_for_rarity)
+async def process_rarity(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(rarity=callback.data.split("_")[1]); await state.set_state(AdminStates.waiting_for_image)
+    await safe_edit_message(callback, "6️⃣ عکس بفرست (یا کلمه skip):")
+
+@dp.message(AdminStates.waiting_for_image)
+async def process_image(message: types.Message, state: FSMContext):
+    image_id = message.photo[-1].file_id if message.photo else None
+    if not image_id and message.text.lower() != "skip": return await message.answer("⚠️ عکس یا skip.")
+    data = await state.get_data()
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('INSERT INTO characters (name, position, technique, base_power, rarity, is_cursed, synergy_tag, image_url) VALUES (%s, %s, %s, %s, %s, FALSE, %s, %s)', (data['name'], data['position'], data['technique'], data['base_power'], data['rarity'], 'custom', image_id))
+    conn.commit(); cur.close(); conn.close()
+    await message.answer(f"✅ **{data['name']}** ساخته شد!")
+    await state.clear()
 
 @dp.callback_query(F.data == "coach_agenda")
 async def coach_agenda(callback: types.CallbackQuery):
@@ -636,105 +849,9 @@ async def admin_fill_ego(message: types.Message):
     if not message.reply_to_message: return await message.answer("⚠️ باید روی پیام کاربر ریپلای کنی!")
     target_id = message.reply_to_message.from_user.id
     conn = get_db_connection(); cur = conn.cursor()
-    cur.execute('UPDATE players SET current_ego = 2000, last_ego_update = NOW() WHERE user_id = %s', (target_id,))
+    cur.execute('UPDATE players SET current_ego = 1000, last_ego_update = NOW() WHERE user_id = %s', (target_id,))
     conn.commit(); cur.close(); conn.close()
     await message.answer(f"✅ **اِگوی کاربر** با موفقیت پر شد!")
-
-class AdminStates(StatesGroup):
-    waiting_for_name = State()
-    waiting_for_position = State()
-    waiting_for_technique = State()
-    waiting_for_power = State()
-    waiting_for_rarity = State()
-    waiting_for_image = State()
-    waiting_for_menu_image = State()
-    waiting_for_event_name = State()
-    waiting_for_event_power = State()
-    waiting_for_event_reward_black = State()
-    waiting_for_event_reward_normal = State()
-    waiting_for_char_to_change = State()
-    waiting_for_char_new_image = State()
-    waiting_for_skin_char = State()
-    waiting_for_skin_image = State()
-
-@dp.message(Command("admin"))
-async def admin_panel(message: types.Message):
-    if message.from_user.id != OWNER_ID: 
-        return await message.answer("⛔ دسترسی نداری.")
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ ADD NEW CARD", callback_data="admin_add_card")],
-        [InlineKeyboardButton(text="🖼️ CHANGE MENU IMAGE", callback_data="admin_set_image")],
-        [InlineKeyboardButton(text="🖼️ CHANGE CHARACTER IMAGE", callback_data="admin_change_char_image")],
-        [InlineKeyboardButton(text="🖼️ ADD SKIN", callback_data="admin_add_skin")],
-        [InlineKeyboardButton(text="🔥 CREATE EVENT", callback_data="admin_create_event")],
-        [InlineKeyboardButton(text="🌧️ DRAMATIC EVENTS", callback_data="admin_set_event")],
-        [InlineKeyboardButton(text="🪙 GIVE COINS (Reply)", callback_data="admin_give_coins")],
-        [InlineKeyboardButton(text="🖤 GIVE BLACK COINS (Reply)", callback_data="admin_give_black_coins")],
-        [InlineKeyboardButton(text="🚫 BAN USER (Reply)", callback_data="admin_ban")],
-        [InlineKeyboardButton(text="🔙 CLOSE", callback_data="back_to_main")]
-    ])
-    await message.answer("👑 **پنل مالک**", reply_markup=kb, parse_mode="Markdown")
-
-# ... (بقیه کدهای ادمین که توی پیام قبلی فرستادم رو هم همینجا زیرش پیست کن) ...
-
-@dp.message(Command("reset_ego"))
-async def reset_my_ego(message: types.Message):
-    if message.from_user.id != OWNER_ID: 
-        return await message.answer("⛔ دسترسی نداری.")
-    
-    conn = get_db_connection(); cur = conn.cursor()
-    # اول اگوی خودت رو صفر میکنه (که کیل بشی)
-    cur.execute('UPDATE players SET current_ego = 0, last_ego_update = NOW() WHERE user_id = %s', (message.from_user.id,))
-    conn.commit()
-    
-    # بعد فوراً بر اساس رنک کارت اصلیت پر میکنه
-    cur.execute('''
-        UPDATE players p
-        SET current_ego = CASE 
-            WHEN c.rarity = 'Rare' THEN 1000
-            WHEN c.rarity = 'Epic' THEN 2000
-            WHEN c.rarity = 'Legendary' THEN 3000
-            WHEN c.rarity = 'Mythic' THEN 4000
-            WHEN c.rarity = 'World Class' THEN 5000
-            ELSE 1000
-        END, 
-        last_ego_update = NOW() 
-        FROM characters c
-        WHERE p.main_char_id = c.char_id AND p.user_id = %s
-    ''', (message.from_user.id,))
-    conn.commit(); cur.close(); conn.close()
-    
-    await message.answer("💀 **تو کیل شدی!**\nولی به لطف رنکت، اگوت دوباره خودکار پر شد! 🚀")
-
-@dp.message(Command("kill_everyone"))
-async def kill_everyone(message: types.Message):
-    if message.from_user.id != OWNER_ID: 
-        return await message.answer("⛔ دسترسی نداری.")
-    
-    conn = get_db_connection(); cur = conn.cursor()
-    # اگوی همه رو صفر میکنه
-    cur.execute('UPDATE players SET current_ego = 0, last_ego_update = NOW()')
-    conn.commit()
-    
-    # فوراً اگوی همه رو بر اساس رنکشون پر میکنه
-    cur.execute('''
-        UPDATE players p
-        SET current_ego = CASE 
-            WHEN c.rarity = 'Rare' THEN 1000
-            WHEN c.rarity = 'Epic' THEN 2000
-            WHEN c.rarity = 'Legendary' THEN 3000
-            WHEN c.rarity = 'Mythic' THEN 4000
-            WHEN c.rarity = 'World Class' THEN 5000
-            ELSE 1000
-        END, 
-        last_ego_update = NOW() 
-        FROM characters c
-        WHERE p.main_char_id = c.char_id
-    ''')
-    conn.commit(); cur.close(); conn.close()
-    
-    await message.answer("💀 **همه کیل شدند!**\nاگوی همه صفر شد و فوراً بر اساس رنکشون پر شد. 🚀")
 
 async def main():
     init_db()
