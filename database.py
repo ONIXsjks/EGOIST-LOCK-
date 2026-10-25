@@ -350,7 +350,6 @@ def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
     if not chosen_char:
         conn.close(); return "no_technique"
 
-    # اگوی حریف بر اساس رنک کارت اصلیش در دیتابیس ذخیره شده، اینجا فقط می‌خونیم
     cur.execute('SELECT current_ego FROM players WHERE user_id = %s', (opponent_id,))
     opponent_data = cur.fetchone()
     opponent_current_ego = opponent_data['current_ego'] if opponent_data else 1000
@@ -436,7 +435,6 @@ def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
     event_text = "\n\n🌧️ **باران گل فعال است!** (دمیج ۲۰٪ افزایش یافت)" if event and event['type'] == 'rain_of_goals' else ""
     dream_text = f"\n\n👑 **بونوس تیم رویایی:** {dream_bonus['name']} (+{dream_bonus['bonus']}٪)" if dream_bonus else ""
 
-    # اگوی حریف توی پیام بر اساس رنکش حساب میشه، ولی اینجا برای نمایش از مقدار ۲۰۰۰ استفاده میکنیم
     return (
         f"{random.choice(attack_texts)}\n"
         f"☠️ **{chosen_char['name']}** ➔ 📍 **{opponent_name}**\n"
@@ -676,6 +674,7 @@ def check_coach_mission(user_id, match_result):
         cur.execute('UPDATE players SET ego = %s, pressure = %s WHERE user_id = %s', (max(0, player['ego'] - 20), min(100, player['pressure'] + 30), user_id))
         cur.execute('UPDATE coach_missions SET is_active = FALSE WHERE mission_id = %s', (mission['mission_id'],))
         conn.commit(); cur.close(); conn.close(); return "failed"
+
 def check_ego_recovery(user_id):
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute('SELECT current_ego, last_ego_update FROM players WHERE user_id = %s', (user_id,))
