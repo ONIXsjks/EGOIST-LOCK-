@@ -59,10 +59,8 @@ async def safe_edit_message(callback: types.CallbackQuery, text: str, reply_mark
         else:
             await callback.message.edit_text(text=text, reply_markup=reply_markup, parse_mode=parse_mode)
     except Exception:
-        try:
-            await callback.message.delete()
-        except:
-            pass
+        try: await callback.message.delete()
+        except: pass
         if callback.message.photo:
             await callback.message.answer_photo(photo=callback.message.photo[-1].file_id, caption=text, reply_markup=reply_markup, parse_mode=parse_mode)
         else:
@@ -81,6 +79,7 @@ async def cmd_start(message: types.Message):
         welcome = f"🔵 **به بلو لاک خوش آمدی، {username}!**\n\nاز منوی زیر شروع کن:"
     else:
         welcome = "🔵 **به بلو لاک برگشتی.**\n\nچه کاری می‌خوای انجام بدی؟"
+    
     menu_image = get_setting("main_menu_image")
     if menu_image:
         await message.answer_photo(photo=menu_image, caption=welcome, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
@@ -98,7 +97,7 @@ async def help_menu(callback: types.CallbackQuery):
     text = (
         "❓ **راهنمای بازی بلو لاک**\n"
         "-------------------------\n"
-        "🔹 **حمله:** روی پیام حریف ریپلای کن و اسم تکنیکت رو بنویس (مثلاً `Direct Shot`).\n"
+        "🔹 **حمله:** روی پیام حریف ریپلای کن و اسم تکنیکت رو بنویس.\n"
         "🔹 **دوئل شرطی:** روی پیام حریف ریپلای کن و بنویس `چالش` (شرط ۵۰ سکه).\n"
         "🔹 **ترید:** روی پیام حریف ریپلای کن و بنویس `ترید` (کارت‌ها معاوضه میشن).\n"
         "🔹 **نبرد دوستانه:** روی پیام حریف ریپلای کن و بنویس `نبرد دوستانه`.\n"
@@ -139,21 +138,6 @@ async def show_profile(callback: types.CallbackQuery):
             await safe_edit_message(callback, text, reply_markup=kb)
     except Exception as e:
         await safe_edit_message(callback, f"⚠️ خطا در دریافت پروفایل.\n(Error: {str(e)})")
-    await callback.answer()
-
-@dp.callback_query(F.data == "achievements_menu")
-async def achievements_menu(callback: types.CallbackQuery):
-    achs = get_achievements(callback.from_user.id)
-    text = "🏅 **دستاوردهای شما**\n-------------------------\n"
-    if not achs:
-        text += "هنوز هیچ دستاوردی ندارید. بازی کنید تا باز شوند!"
-    else:
-        for a in achs:
-            status = "✅" if a['completed'] else f"⏳ ({a['progress']}/{a['target']})"
-            text += f"{a['icon']} {a['name']}: {status}\n"
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
-    await safe_edit_message(callback, text, reply_markup=kb)
     await callback.answer()
 
 @dp.callback_query(F.data == "leaderboard")
@@ -199,7 +183,7 @@ async def set_main_character(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "gacha_shop")
 async def gacha_shop(callback: types.CallbackQuery):
-    text = "🎰 **بازار گاچا**\n\nبا ۱۰۰ سکه شانست رو امتحان کن!\n🔴 Legendary: ۳٪\n🟣 Epic: ۲۲٪\n🔵 Rare: ۷۵٪"
+    text = "🎰 **بازار گاچا**\n\nبا ۱۰۰ سکه شانست رو امتحان کن!"
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎲 ROLL GACHA (100 Coins)", callback_data="roll_gacha")], [InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
     await safe_edit_message(callback, text, reply_markup=kb)
     await callback.answer()
@@ -208,7 +192,6 @@ async def gacha_shop(callback: types.CallbackQuery):
 async def roll_gacha(callback: types.CallbackQuery):
     result = perform_gacha(callback.from_user.id, cost=100)
     if result == "no_coins": return await callback.answer("❌ سکه کافی نداری!", show_alert=True)
-    if result == "no_chars": return await callback.answer("❌ خطا: کارت‌ها در دیتابیس نیستند.", show_alert=True)
     
     try: update_achievement_progress(callback.from_user.id, "gacha_rolls")
     except: pass
@@ -216,7 +199,7 @@ async def roll_gacha(callback: types.CallbackQuery):
     team = get_player_team(callback.from_user.id)
     duplicate = next((c for c in team if c['char_id'] == result['char_id']), None)
     if duplicate:
-        caption = f"🔄 **کارت تکراری!**\n\nشما کارت **{result['name']}** رو دوباره گرفتی.\nآیا می‌خوای کارت رو آپگرید کنی؟ (قدرت +5)"
+        caption = f"🔄 **کارت تکراری!**\n\nشما کارت **{result['name']}** رو دوباره گرفتی.\nآیا می‌خوای کارت رو آپگرید کنی؟"
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💪 آپگرید (قدرت +5)", callback_data=f"upgrade_card_{result['char_id']}")],
             [InlineKeyboardButton(text="❌ رد کردن", callback_data="gacha_shop")]
@@ -224,9 +207,7 @@ async def roll_gacha(callback: types.CallbackQuery):
         await safe_edit_message(callback, caption, reply_markup=kb)
         return
 
-    emoji = {"Legendary": "🔴", "Epic": "🟣", "Rare": "🔵"}.get(result['rarity'], "⚪")
-    caption = f"🎉 **کارت جدید!**\n\n{emoji} **{result['name']}**\n📍 {result['position']}\n⚡ {result['technique']}\n💪 قدرت: {result['base_power']}\n"
-    if result['is_cursed']: caption += "\n⚠️ **نفرین‌شده!**"
+    caption = f"🎉 **کارت جدید!**\n\n**{result['name']}**\n📍 {result['position']}\n⚡ {result['technique']}\n💪 قدرت: {result['base_power']}\n"
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎲 ROLL AGAIN", callback_data="roll_gacha")], [InlineKeyboardButton(text="🔙 BACK", callback_data="gacha_shop")]])
     if result.get('image_url'):
         try: await callback.message.delete()
@@ -257,7 +238,7 @@ async def manage_team(callback: types.CallbackQuery):
         
     synergy_text = f"\n\n🔥 **تیم رویایی فعال:** {dream_bonus['name']} (+{dream_bonus['bonus']}٪)" if dream_bonus else ""
     
-    kb_buttons = [[InlineKeyboardButton(text=f"{'🔴' if c['rarity']=='Legendary' else '🟣' if c['rarity']=='Epic' else '🔵'} {c['name']} {'⚠️' if c['is_cursed'] else ''}", callback_data=f"view_char_{c['char_id']}")] for c in team]
+    kb_buttons = [[InlineKeyboardButton(text=f"{'🔴' if c['rarity']=='Legendary' else '🟣' if c['rarity']=='Epic' else '🔵'} {c['name']}", callback_data=f"view_char_{c['char_id']}")] for c in team]
     kb_buttons.append([InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")])
     await safe_edit_message(callback, f"🧠 **لیست کارت‌های تو:**{synergy_text}", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
     await callback.answer()
@@ -269,7 +250,7 @@ async def view_character(callback: types.CallbackQuery):
     char = next((c for c in team if c['char_id'] == char_id), None)
     if not char: return await callback.answer("پیدا نشد!")
     dmg = get_player_damage(callback.from_user.id, char_id)
-    text = f"🃏 **{char['name']}**\n📍 {char['position']}\n⚡ **تکنیک:** {char['technique']}\n💪 {char['base_power']}\n💥 دمیج دریافتی: **{dmg}**\n{'⚠️ **نفرین‌شده!**' if char['is_cursed'] else '✅ سالم'}"
+    text = f"🃏 **{char['name']}**\n📍 {char['position']}\n⚡ **تکنیک:** {char['technique']}\n💪 {char['base_power']}\n💥 دمیج دریافتی: **{dmg}**"
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🗑️ DELETE CARD", callback_data=f"delete_char_{char_id}")], [InlineKeyboardButton(text="🔙 BACK", callback_data="manage_team")]])
     await safe_edit_message(callback, text, reply_markup=kb)
     await callback.answer()
@@ -299,18 +280,59 @@ async def show_char_skills(callback: types.CallbackQuery):
     char_name = char['name']
     text = f"🌌 **قلمرو اگو - {char_name}**\n-------------------------\nهر مهارت با سکه قابل باز کردنه. مهارت‌های پایین‌تر نیاز به سکه سیاه دارن!\n\n"
     
-    skills = []
-    if char_name == "Yoichi Isagi":
-        skills = [("DIRECT SHOT", 500, "normal"), ("METAVISION", 500, "normal"), ("OFF THE BALL", 500, "normal"), ("SPATIAL AWARENESS", 800, "normal"), ("PUZZLE SOLVING", 5, "black"), ("PROTAGONIST SYNDROME", 10, "black"), ("FLOW STATE", 15, "black")]
-    elif char_name == "Hiori Yo":
-        skills = [("GENIUS PASS", 500, "normal"), ("TACTICAL VISION", 500, "normal"), ("QUICK FEET", 500, "normal"), ("PRECISION CROSS", 800, "normal"), ("METAVISION", 5, "black"), ("ZERO LATENCY", 10, "black"), ("GAME MAKER", 15, "black")]
-    else:
-        tech = char['technique']
-        skills = [(tech, 500, "normal"), ("POWER SHOT", 500, "normal"), ("QUICK DRIBBLE", 500, "normal"), ("DEFENSIVE STANCE", 800, "normal"), ("BEAST MODE", 5, "black"), ("ULTIMATE FINISH", 10, "black"), ("DOMAIN EXPANSION", 15, "black")]
+    skills_db = {
+        "Noel Noa": [("AMBIDEXTROUS FINISH", 500, "normal"), ("MACHINE DRIBBLE", 500, "normal"), ("TACTICAL GENIUS", 500, "normal"), ("PERFECT EFFICIENCY", 800, "normal"), ("GUN VOLLEY", 5, "black"), ("YOU WILL FOLLOW", 10, "black"), ("BEST STRIKER", 15, "black")],
+        "Julian Loki": [("BUT IM FAST", 500, "normal"), ("TORNADO SHOT", 500, "normal"), ("DIVINE SPRINTER", 500, "normal"), ("VELOCITY DASH", 800, "normal"), ("IS THIS OKAY?", 5, "black"), ("GOD SPRINTER", 10, "black"), ("TO SLOW", 15, "black")],
+        "Leonardo Luna": [("GOLDEN MIRAGE", 500, "normal"), ("LUNAR IMPACT", 500, "normal"), ("GOLDEN SHIELD", 500, "normal"), ("DOUBLE TOUCH", 800, "normal"), ("GOLDEN DRIBBLE", 5, "black"), ("ROYAL IMPACT", 10, "black"), ("GOO", 15, "black")],
+        "Chris Prince": [("MUSCLE DEMON", 500, "normal"), ("DEMON SNIPE", 500, "normal"), ("LOGICAL SHOT", 500, "normal"), ("NO WAY", 800, "normal"), ("ILLOGICAL KNUCKLE BALL", 5, "black"), ("BICYCLE BLOCK", 10, "black"), ("MUSCLE DRIBBLE", 15, "black")],
+        "Lavinho": [("RISING DANCE", 500, "normal"), ("BUTTERFLY DRIBBLE", 500, "normal"), ("GINGA STYLE", 500, "normal"), ("GINGA SHOT", 800, "normal"), ("BUTTERFLY COUNTER", 5, "black"), ("BUTTERFLY DANCE", 10, "black"), ("BUTTERFLY INTERCEPT", 15, "black")],
+        "Mark Snuffy": [("RATIONAL DEFENSE", 500, "normal"), ("RATIONAL INTERCEPTION", 500, "normal"), ("PHOENIX DRIBBLING", 500, "normal"), ("EAGLE ILLUSION", 800, "normal"), ("TACTICAL VISION", 5, "black"), ("PHOENIX BLOCK", 10, "black"), ("FALL", 15, "black")],
+        "Dada Silva": [("STRENGTH", 500, "normal"), ("POWER SHOT", 500, "normal"), ("TACKLE", 500, "normal"), ("AERIAL DUEL", 800, "normal"), ("GIANTS STRENGTH", 5, "black"), ("EARTH SHAKER", 10, "black"), ("TITAN", 15, "black")],
+        "Pablo Cavasoz": [("HILUSION SHOT", 500, "normal"), ("RAINBOW PASS", 500, "normal"), ("ILUSION DRIBBLE", 500, "normal"), ("PENJICAL PASS", 800, "normal"), ("BLITZ STRIKE", 5, "black"), ("CURVE ILLUSION", 10, "black"), ("TOUCH COUNTER", 15, "black")],
+        "Yoichi Isagi": [("DIRECT SHOT", 500, "normal"), ("FADEAWAY", 500, "normal"), ("META BLOCK", 500, "normal"), ("TWO GUN VOLLEY", 800, "normal"), ("LEFTY SHOT", 5, "black"), ("KING DEMON", 10, "black"), ("LAST PUZZLE", 15, "black")],
+        "Vivian Hugo": [("Halu Pass", 500, "normal"), ("Second Best", 500, "normal"), ("Mechanic Dribble", 500, "normal"), ("Halu Block", 800, "normal"), ("Halu shot", 5, "black"), ("Obey Your Destiny", 10, "black"), ("Luck 1%", 15, "black")],
+        "Bunny Iglesias": [("RABBIT JUMP", 500, "normal"), ("HE WANNA DIE", 500, "normal"), ("SCISSOR KICK", 500, "normal"), ("LOB PASS", 800, "normal"), ("RABBIT TRAP", 5, "black"), ("BARCHA STRIKER", 10, "black"), ("HERE IN THE AIR", 15, "black")],
+        "Reo Mikage": [("PERFECT COPY", 500, "normal"), ("ITOSHI BROTHER COPY", 500, "normal"), ("DEFENSIVE MODE", 500, "normal"), ("OFFENSIVE MODE", 800, "normal"), ("CHAMELEON", 5, "black"), ("COPY", 10, "black"), ("NEO GYRO SHOT", 15, "black")],
+        "Michael Kaiser": [("EMPEROR MOVE", 500, "normal"), ("LINGHINTG SHOT", 500, "normal"), ("EMPROR DRIBBLE", 500, "normal"), ("ROSE", 800, "normal"), ("BICYKLE IMPACT", 5, "black"), ("KAISER IMPACT", 10, "black"), ("MEGNUS IMPACT", 15, "black")],
+        "Sae Itoshi": [("TURN", 500, "normal"), ("CRUVE PASS", 500, "normal"), ("NUTMEG", 500, "normal"), ("OFF BALANCE", 800, "normal"), ("CORNER SHOT", 5, "black"), ("CROSS MAGIC", 10, "black"), ("PERFECT PASS", 15, "black")],
+        "Rin Itoshi": [("WATER DRIBBLE", 500, "normal"), ("CURVE SHOT", 500, "normal"), ("FULL BURST", 500, "normal"), ("BLIND SPOT SHOT", 800, "normal"), ("CRASHOUT", 5, "black"), ("ANHLIOT VOLLEY", 10, "black"), ("ANHILIOT", 15, "black")],
+        "Don Lorenzo": [("ZOMBIE DRIBBLE", 500, "normal"), ("ZOMBIE DASH", 500, "normal"), ("ZOMBIE STEAL", 500, "normal"), ("GOLDEN DEFENSE", 800, "normal"), ("YO MICHAEL", 5, "black"), ("COUNTER ATTACK", 10, "black"), ("UNDEAD MODE", 15, "black")],
+        "Teddy Knight": [("FLAIR NUTMEG", 500, "normal"), ("PARADO OF KNIGHT", 500, "normal"), ("SWORD CROSS", 500, "normal"), ("KNIGHT GUARD", 800, "normal"), ("DESTROY YOUR FACE", 5, "black"), ("ENGLAND BLITZ", 10, "black"), ("NUTMEG PASS", 15, "black")],
+        "Ryusei Shidou": [("Dragon Shot", 500, "normal"), ("Dragon drive", 500, "normal"), ("Dragon Header", 500, "normal"), ("Dragon Run", 800, "normal"), ("Big bang Drive", 5, "black"), ("Demon Drive", 10, "black"), ("BEAST KING", 15, "black")],
+        "Seishiro Nagi": [("Perfect Trap", 500, "normal"), ("Fake Shot", 500, "normal"), ("air Dribble", 500, "normal"), ("Juggling shot", 800, "normal"), ("Nice to meet you japan", 5, "black"), ("2 stage Fake volley", 10, "black"), ("5 stage Fake Volley", 15, "black")],
+        "Shoei Barou": [("Lion Chop", 500, "normal"), ("King Dribble", 500, "normal"), ("predator Eye", 500, "normal"), ("King Shot", 800, "normal"), ("King Of The Jungle", 5, "black"), ("Your Light Is mine", 10, "black"), ("double Nutmeg", 15, "black")],
+        "Lockhart": [("Iron Header", 500, "normal"), ("Iron Body Run", 500, "normal"), ("Body Block", 500, "normal"), ("Power Pass", 800, "normal"), ("Iron Heart", 5, "black"), ("England Striker", 10, "black"), ("Iron Man", 15, "black")],
+        "Kenyu Yukimiya": [("LA BOBA", 500, "normal"), ("GOAL IN TIME", 500, "normal"), ("ELASTICO", 500, "normal"), ("GYRO SHOT", 800, "normal"), ("EMPEROR OF 1V1", 5, "black"), ("SWORD SCREW", 10, "black"), ("SWORD SCREW VOLLEY", 15, "black")],
+        "Oliver Aiku": [("SNAKE CLEAR", 500, "normal"), ("LAST LINE", 500, "normal"), ("SNAKE BITE", 500, "normal"), ("SENSOR BLOCK", 800, "normal"), ("SNAKE COUNTER", 5, "black"), ("ZIG ZAG CROSS", 10, "black"), ("HEAD BLOCK", 15, "black")],
+        "Rensuke Kunigami": [("Body Block", 500, "normal"), ("power Shot", 500, "normal"), ("Cyborg", 500, "normal"), ("Joker Card", 800, "normal"), ("Fallen Hero", 5, "black"), ("RUSH VOLLEY", 10, "black"), ("Joker", 15, "black")],
+        "Jin Kiyora": [("BORDELINE PASS", 500, "normal"), ("KAY", 500, "normal"), ("Backspin shot", 500, "normal"), ("TO MAKE HIMSELF", 800, "normal"), ("TWISTER SHOT", 5, "black"), ("TWISTER PASS", 10, "black"), ("ACROBATIC SHOT", 15, "black")],
+        "Meguru Bachira": [("Bon", 500, "normal"), ("Monster Dribble", 500, "normal"), ("Curve Pass", 500, "normal"), ("Bee Shot", 800, "normal"), ("Ginga Style x Monser", 5, "black"), ("Monster Trance", 10, "black"), ("I'll Make Dribbling my Ego", 15, "black")],
+        "Hyoma Chigiri": [("Speedster", 500, "normal"), ("Accelerate", 500, "normal"), ("match In", 500, "normal"), ("i want to be best striker", 800, "normal"), ("44 panther Zone", 5, "black"), ("The Red Panther", 10, "black"), ("Blitz", 15, "black")],
+        "Tabito Karasu": [("HAND DRIBBLE", 500, "normal"), ("CROW THEFT", 500, "normal"), ("RAVEN PASS", 500, "normal"), ("CROW SHOT", 800, "normal"), ("NEW GOAL METHOD", 5, "black"), ("ALRIGHT DATA ENTERED", 10, "black"), ("ALLOW ME TO DELIVER", 15, "black")],
+        "Hiori Yo": [("ICE PASS", 500, "normal"), ("RAINBOW FLICK", 500, "normal"), ("SNOW SHOT", 500, "normal"), ("SNOW CUT", 800, "normal"), ("ONE MORE TIME", 5, "black"), ("NO LOOK PASS", 10, "black"), ("ICEVISION", 15, "black")],
+        "Jyubei Aryu": [("FLYING CHEST TRAP", 500, "normal"), ("STYLISH BLOCK", 500, "normal"), ("IS MY TERRITORY", 500, "normal"), ("SCRAPTER TACKLE", 800, "normal"), ("AIR MARK", 5, "black"), ("WHAYYY", 10, "black"), ("TWIN TOWER", 15, "black")],
+        "Gin Gagamaru": [("Scorpion", 500, "normal"), ("Diving Header", 500, "normal"), ("Fast Reaction", 500, "normal"), ("BEAST REFLEXES", 800, "normal"), ("Handstand", 5, "black"), ("Bear Claw", 10, "black"), ("DIVING SHOT", 15, "black")],
+        "Shuto Sendo": [("Second Striker", 500, "normal"), ("Endless Stamina", 500, "normal"), ("Half Space Movement", 500, "normal"), ("Box to Box", 800, "normal"), ("Determination", 5, "black"), ("Sniper shot", 10, "black"), ("Counter Shot", 15, "black")],
+        "Aoshi Tokimitsu": [("Agility", 500, "normal"), ("Immovable Physique", 500, "normal"), ("Shoulder Charge", 500, "normal"), ("Unlimited Stamina", 800, "normal"), ("Quickness", 5, "black"), ("Physical Strength", 10, "black"), ("Stamina", 15, "black")],
+        "Gurimu Igarashi": [("Diving", 500, "normal"), ("Malicia Dribbling", 500, "normal"), ("Foul Drawing", 500, "normal"), ("Unyielding Spirit", 800, "normal"), ("Full Throttle Scissors", 5, "black"), ("It's Lights Out!", 10, "black"), ("Desperate Look", 15, "black")],
+        "Otoya Eita": [("Stealth", 500, "normal"), ("Ninja Dribble", 500, "normal"), ("NINJA Move", 500, "normal"), ("WONG WONG WOHA", 800, "normal"), ("Ninja", 5, "black"), ("Blind-Spot Infiltration", 10, "black"), ("Shadow Striker", 15, "black")],
+        "Tsurugi Zantetsu": [("Explosive Acceleration", 500, "normal"), ("Left-Foot Shooting", 500, "normal"), ("Double Wing Boost", 500, "normal"), ("Bullet Train Maglev", 800, "normal"), ("Jet Counter", 5, "black"), ("Quick Reactions", 10, "black"), ("Acceleration", 15, "black")],
+        "Fukaku Gen": [("Physique", 500, "normal"), ("Reactions", 500, "normal"), ("Goalkeeping", 500, "normal"), ("Dropkick", 800, "normal"), ("Reflexes", 5, "black"), ("Shot Stopping", 10, "black"), ("Goal Protection", 15, "black")],
+        "Kazuma Nio": [("Dominant Physique", 500, "normal"), ("Man Marking", 500, "normal"), ("Physical Defense", 500, "normal"), ("Pressing", 800, "normal"), ("Defensive Duels", 5, "black"), ("Tight Marking", 10, "black"), ("Defensive Positioning", 15, "black")],
+        "Nijiro Nanase": [("Ambidexterity", 500, "normal"), ("Migrae Pass", 500, "normal"), ("Mirage Dribble", 500, "normal"), ("Adaptability", 800, "normal"), ("HOLY CRAP", 5, "black"), ("SO CLOSE", 10, "black"), ("DOG RIN", 15, "black")],
+        "Ranze Kurona": [("CRODINATE", 500, "normal"), ("ZERO TURN SHOT", 500, "normal"), ("RAZOR CROSS", 500, "normal"), ("RAZOR DRIBBLE", 800, "normal"), ("PLANET HOTLINE", 5, "black"), ("ZERO DEGREE PASS", 10, "black"), ("LETS GO ISAGI", 15, "black")]
+    }
+    
+    # گرفتن مهارت‌های کارت یا حالت پیش‌فرض
+    skills = skills_db.get(char_name, [
+        (char['technique'], 500, "normal"), ("POWER SHOT", 500, "normal"), 
+        ("QUICK DRIBBLE", 500, "normal"), ("DEFENSIVE STANCE", 800, "normal"), 
+        ("BEAST MODE", 5, "black"), ("ULTIMATE FINISH", 10, "black"), ("DOMAIN EXPANSION", 15, "black")
+    ])
     
     unlocked = get_unlocked_skills(callback.from_user.id)
     
-    # ✅ باز کردن خودکار ۴ مهارت اول (پولی) بدون کم کردن سکه
+    # باز کردن خودکار ۴ مهارت اول
     for i in range(4):
         if i < len(skills):
             skill_name, cost, currency = skills[i]
@@ -326,7 +348,7 @@ async def show_char_skills(callback: types.CallbackQuery):
     kb_buttons = []
     for skill_name, cost, currency in skills:
         if skill_name in unlocked:
-            kb_buttons.append([InlineKeyboardButton(text=f"✅ {skill_name} (Unlocked)", callback_data="none")])
+            kb_buttons.append([InlineKeyboardButton(text=f"✅ {skill_name}", callback_data="none")])
         else:
             if currency == "normal":
                 kb_buttons.append([InlineKeyboardButton(text=f"UNLOCK: {skill_name} · {cost} 🪙", callback_data=f"unlock_{skill_name.replace(' ', '_')}_{cost}_normal")])
@@ -369,7 +391,6 @@ async def unlock_skill(callback: types.CallbackQuery):
     unlock_skill_db(callback.from_user.id, skill_name, currency)
     await callback.answer("✅ مهارت باز شد!", show_alert=True)
     await show_char_skills(callback)
-
 @dp.callback_query(F.data == "training_menu")
 async def training_menu(callback: types.CallbackQuery):
     player = get_player(callback.from_user.id)
@@ -466,227 +487,6 @@ async def buy_power_boost(callback: types.CallbackQuery):
     if result == "no_coins": return await callback.answer("❌ سکه سیاه کافی نداری!", show_alert=True)
     await callback.answer("✅ قدرت تیمت افزایش پیدا کرد!", show_alert=True)
     await black_market(callback)
-class AdminStates(StatesGroup):
-    waiting_for_name = State()
-    waiting_for_position = State()
-    waiting_for_technique = State()
-    waiting_for_power = State()
-    waiting_for_rarity = State()
-    waiting_for_image = State()
-    waiting_for_menu_image = State()
-    waiting_for_event_name = State()
-    waiting_for_event_power = State()
-    waiting_for_event_reward_black = State()
-    waiting_for_event_reward_normal = State()
-    waiting_for_char_to_change = State()
-    waiting_for_char_new_image = State()
-    waiting_for_skin_char = State()
-    waiting_for_skin_image = State()
-
-@dp.message(Command("admin"))
-async def admin_panel(message: types.Message):
-    if message.from_user.id != OWNER_ID: 
-        return await message.answer("⛔ دسترسی نداری.")
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ ADD NEW CARD", callback_data="admin_add_card")],
-        [InlineKeyboardButton(text="🖼️ CHANGE MENU IMAGE", callback_data="admin_set_image")],
-        [InlineKeyboardButton(text="🖼️ CHANGE CHARACTER IMAGE", callback_data="admin_change_char_image")],
-        [InlineKeyboardButton(text="🖼️ ADD SKIN", callback_data="admin_add_skin")],
-        [InlineKeyboardButton(text="🔥 CREATE EVENT", callback_data="admin_create_event")],
-        [InlineKeyboardButton(text="🌧️ DRAMATIC EVENTS", callback_data="admin_set_event")],
-        [InlineKeyboardButton(text="🪙 GIVE COINS (Reply)", callback_data="admin_give_coins")],
-        [InlineKeyboardButton(text="🖤 GIVE BLACK COINS (Reply)", callback_data="admin_give_black_coins")],
-        [InlineKeyboardButton(text="🚫 BAN USER (Reply)", callback_data="admin_ban")],
-        [InlineKeyboardButton(text="🔙 CLOSE", callback_data="back_to_main")]
-    ])
-    await message.answer("👑 **پنل مالک**", reply_markup=kb, parse_mode="Markdown")
-
-@dp.callback_query(F.data == "admin_give_coins")
-async def admin_give_coins_menu(callback: types.CallbackQuery):
-    if callback.from_user.id != OWNER_ID: return
-    await safe_edit_message(callback, "🪙 روی پیام کاربر مورد نظر **ریپلای** کن و بنویس:\n`give [مقدار]`\nمثال: `give 500`")
-
-@dp.callback_query(F.data == "admin_give_black_coins")
-async def admin_give_black_coins_menu(callback: types.CallbackQuery):
-    if callback.from_user.id != OWNER_ID: return
-    await safe_edit_message(callback, "🖤 روی پیام کاربر مورد نظر **ریپلای** کن و بنویس:\n`giveblack [مقدار]`\nمثال: `giveblack 50`")
-
-@dp.callback_query(F.data == "admin_ban")
-async def admin_ban(callback: types.CallbackQuery):
-    if callback.from_user.id != OWNER_ID: return
-    await safe_edit_message(callback, "🚫 روی پیام کاربر مورد نظر **ریپلای** کن و بنویس:\n`ban`")
-
-@dp.callback_query(F.data == "admin_set_event")
-async def admin_set_event(callback: types.CallbackQuery):
-    if callback.from_user.id != OWNER_ID: return
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🌧️ باران گل (دمیج +20%)", callback_data="event_rain")],
-        [InlineKeyboardButton(text="🔥 خشم مربی (فشار زیاد)", callback_data="event_anger")],
-        [InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]
-    ])
-    await safe_edit_message(callback, "🔥 **کدوم رویداد دراماتیک رو فعال کنم؟**", reply_markup=kb)
-
-@dp.callback_query(F.data == "event_rain")
-async def event_rain(callback: types.CallbackQuery):
-    if callback.from_user.id != OWNER_ID: return
-    set_global_event("rain_of_goals", 10)
-    await callback.answer("✅ رویداد باران گل برای ۱۰ دقیقه فعال شد!", show_alert=True)
-
-@dp.callback_query(F.data == "event_anger")
-async def event_anger(callback: types.CallbackQuery):
-    if callback.from_user.id != OWNER_ID: return
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute("UPDATE players SET pressure = LEAST(100, pressure + 20)")
-    conn.commit(); cur.close(); conn.close()
-    await callback.answer("✅ فشار همه بازیکنا ۲۰ واحد افزایش یافت!", show_alert=True)
-
-@dp.callback_query(F.data == "admin_add_skin")
-async def admin_add_skin(callback: types.CallbackQuery, state: FSMContext):
-    if callback.from_user.id != OWNER_ID: return
-    await state.set_state(AdminStates.waiting_for_skin_char)
-    await safe_edit_message(callback, "🖼️ اسم کاراکتری که می‌خوای براش اسکین بسازی رو بنویس:")
-
-@dp.message(AdminStates.waiting_for_skin_char)
-async def process_skin_char(message: types.Message, state: FSMContext):
-    char_name = message.text.strip()
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute('SELECT char_id FROM characters WHERE name = %s', (char_name,))
-    char = cur.fetchone()
-    cur.close(); conn.close()
-    if not char: return await message.answer("⚠️ این کاراکتر پیدا نشد!")
-    await state.update_data(char_id=char['char_id'])
-    await state.set_state(AdminStates.waiting_for_skin_image)
-    await message.answer(f"✅ {char_name} پیدا شد. حالا عکس اسکین جدیدش رو بفرست:")
-
-@dp.message(AdminStates.waiting_for_skin_image)
-async def process_skin_image(message: types.Message, state: FSMContext):
-    if not message.photo: return await message.answer("⚠️ لطفاً یک عکس ارسال کن.")
-    file_id = message.photo[-1].file_id
-    data = await state.get_data()
-    add_skin_to_inventory(message.from_user.id, data['char_id'], file_id)
-    await message.answer("✅ اسکین ساخته شد و به اینونتوری شما اضافه شد!")
-    await state.clear()
-
-@dp.callback_query(F.data == "admin_set_image")
-async def admin_set_image(callback: types.CallbackQuery, state: FSMContext):
-    if callback.from_user.id != OWNER_ID: return
-    await state.set_state(AdminStates.waiting_for_menu_image)
-    await safe_edit_message(callback, "🖼️ **لطفاً عکس جدید منو رو ارسال کن:**")
-
-@dp.message(AdminStates.waiting_for_menu_image)
-async def process_menu_image(message: types.Message, state: FSMContext):
-    if message.from_user.id != OWNER_ID: return
-    if not message.photo: return await message.answer("⚠️ لطفاً یک عکس ارسال کن.")
-    file_id = message.photo[-1].file_id
-    save_setting("main_menu_image", file_id)
-    await message.answer("✅ **عکس منو با موفقیت تغییر کرد!**")
-    await state.clear()
-
-@dp.callback_query(F.data == "admin_change_char_image")
-async def admin_change_char_image(callback: types.CallbackQuery, state: FSMContext):
-    if callback.from_user.id != OWNER_ID: return
-    await state.set_state(AdminStates.waiting_for_char_to_change)
-    await safe_edit_message(callback, "🖼️ اسم کاراکتری که می‌خوای عکسش رو عوض کنی بنویس (مثلاً: Michael Kaiser):")
-
-@dp.message(AdminStates.waiting_for_char_to_change)
-async def process_char_to_change(message: types.Message, state: FSMContext):
-    char_name = message.text.strip()
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute('SELECT char_id FROM characters WHERE name = %s', (char_name,))
-    char = cur.fetchone()
-    cur.close(); conn.close()
-    if not char: return await message.answer("⚠️ این کاراکتر پیدا نشد!")
-    await state.update_data(char_id=char['char_id'])
-    await state.set_state(AdminStates.waiting_for_char_new_image)
-    await message.answer(f"✅ {char_name} پیدا شد. حالا عکس جدیدش رو بفرست:")
-
-@dp.message(AdminStates.waiting_for_char_new_image)
-async def process_char_new_image(message: types.Message, state: FSMContext):
-    if not message.photo: return await message.answer("⚠️ لطفاً یک عکس ارسال کن.")
-    file_id = message.photo[-1].file_id
-    data = await state.get_data()
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute('UPDATE characters SET image_url = %s WHERE char_id = %s', (file_id, data['char_id']))
-    conn.commit(); cur.close(); conn.close()
-    await message.answer("✅ عکس کاراکتر با موفقیت تغییر کرد!")
-    await state.clear()
-
-@dp.callback_query(F.data == "admin_create_event")
-async def admin_create_event(callback: types.CallbackQuery, state: FSMContext):
-    if callback.from_user.id != OWNER_ID: return
-    await state.set_state(AdminStates.waiting_for_event_name)
-    await safe_edit_message(callback, "1️⃣ اسم باس جدید را وارد کن:")
-
-@dp.message(AdminStates.waiting_for_event_name)
-async def process_event_name(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text); await state.set_state(AdminStates.waiting_for_event_power)
-    await message.answer("2️⃣ قدرت باس (مثلاً 100):")
-
-@dp.message(AdminStates.waiting_for_event_power)
-async def process_event_power(message: types.Message, state: FSMContext):
-    if not message.text.isdigit(): return await message.answer("⚠️ عدد بده.")
-    await state.update_data(power=int(message.text)); await state.set_state(AdminStates.waiting_for_event_reward_black)
-    await message.answer("3️⃣ جایزه سکه سیاه (🖤):")
-
-@dp.message(AdminStates.waiting_for_event_reward_black)
-async def process_event_reward_black(message: types.Message, state: FSMContext):
-    if not message.text.isdigit(): return await message.answer("⚠️ عدد بده.")
-    await state.update_data(reward_black=int(message.text)); await state.set_state(AdminStates.waiting_for_event_reward_normal)
-    await message.answer("4️⃣ جایزه سکه عادی (🪙):")
-
-@dp.message(AdminStates.waiting_for_event_reward_normal)
-async def process_event_reward_normal(message: types.Message, state: FSMContext):
-    if not message.text.isdigit(): return await message.answer("⚠️ عدد بده.")
-    await state.update_data(reward_normal=int(message.text))
-    data = await state.get_data()
-    create_event(data['name'], data['power'], data['reward_black'], data['reward_normal'])
-    await message.answer(f"✅ **ایونت {data['name']} ساخته شد!**")
-    await state.clear()
-
-@dp.callback_query(F.data == "admin_add_card")
-async def admin_add_card(callback: types.CallbackQuery, state: FSMContext):
-    if callback.from_user.id != OWNER_ID: return
-    await state.set_state(AdminStates.waiting_for_name)
-    await safe_edit_message(callback, "1️⃣ نام کاراکتر:")
-
-@dp.message(AdminStates.waiting_for_name)
-async def process_name(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text); await state.set_state(AdminStates.waiting_for_position)
-    await message.answer("2️⃣ پست (FW, MF, DF, GK):")
-
-@dp.message(AdminStates.waiting_for_position)
-async def process_position(message: types.Message, state: FSMContext):
-    await state.update_data(position=message.text.upper()); await state.set_state(AdminStates.waiting_for_technique)
-    await message.answer("3️⃣ تکنیک:")
-
-@dp.message(AdminStates.waiting_for_technique)
-async def process_tech(message: types.Message, state: FSMContext):
-    await state.update_data(technique=message.text); await state.set_state(AdminStates.waiting_for_power)
-    await message.answer("4️⃣ قدرت (1-100):")
-
-@dp.message(AdminStates.waiting_for_power)
-async def process_power(message: types.Message, state: FSMContext):
-    if not message.text.isdigit(): return await message.answer("⚠️ عدد بده.")
-    await state.update_data(base_power=int(message.text)); await state.set_state(AdminStates.waiting_for_rarity)
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Rare", callback_data="rarity_Rare")], [InlineKeyboardButton(text="Epic", callback_data="rarity_Epic")], [InlineKeyboardButton(text="Legendary", callback_data="rarity_Legendary")]])
-    await message.answer("5️⃣ ریتی:", reply_markup=kb)
-
-@dp.callback_query(F.data.startswith("rarity_"), AdminStates.waiting_for_rarity)
-async def process_rarity(callback: types.CallbackQuery, state: FSMContext):
-    await state.update_data(rarity=callback.data.split("_")[1]); await state.set_state(AdminStates.waiting_for_image)
-    await safe_edit_message(callback, "6️⃣ عکس بفرست (یا کلمه skip):")
-
-@dp.message(AdminStates.waiting_for_image)
-async def process_image(message: types.Message, state: FSMContext):
-    image_id = message.photo[-1].file_id if message.photo else None
-    if not image_id and message.text.lower() != "skip": return await message.answer("⚠️ عکس یا skip.")
-    data = await state.get_data()
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute('INSERT INTO characters (name, position, technique, base_power, rarity, is_cursed, synergy_tag, image_url) VALUES (%s, %s, %s, %s, %s, FALSE, %s, %s)', (data['name'], data['position'], data['technique'], data['base_power'], data['rarity'], 'custom', image_id))
-    conn.commit(); cur.close(); conn.close()
-    await message.answer(f"✅ **{data['name']}** ساخته شد!")
-    await state.clear()
 
 @dp.callback_query(F.data == "coach_agenda")
 async def coach_agenda(callback: types.CallbackQuery):
@@ -696,6 +496,21 @@ async def coach_agenda(callback: types.CallbackQuery):
         text = f"🕵️‍♂️ ماموریت مخفی مربی:\n\n{mission_text}\n\n⚠️ اگر این ماموریت رو انجام ندی، اِگوت کم میشه!"
     except Exception as e:
         text = f"⚠️ خطا در دریافت ماموریت.\n(Error: {str(e)})"
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
+    await safe_edit_message(callback, text, reply_markup=kb)
+    await callback.answer()
+
+@dp.callback_query(F.data == "achievements_menu")
+async def achievements_menu(callback: types.CallbackQuery):
+    achs = get_achievements(callback.from_user.id)
+    text = "🏅 **دستاوردهای شما**\n-------------------------\n"
+    if not achs:
+        text += "هنوز هیچ دستاوردی ندارید. بازی کنید تا باز شوند!"
+    else:
+        for a in achs:
+            status = "✅" if a['completed'] else f"⏳ ({a['progress']}/{a['target']})"
+            text += f"{a['icon']} {a['name']}: {status}\n"
+    
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 BACK", callback_data="back_to_main")]])
     await safe_edit_message(callback, text, reply_markup=kb)
     await callback.answer()
