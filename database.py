@@ -19,7 +19,7 @@ def init_db():
         black_coins INTEGER DEFAULT 0, normal_coins INTEGER DEFAULT 100, team_json JSONB DEFAULT '[]'::jsonb,
         current_match_state JSONB DEFAULT NULL, in_shadow_league BOOLEAN DEFAULT FALSE, shadow_wins INTEGER DEFAULT 0,
         ego_broken_at TIMESTAMPTZ DEFAULT NULL, last_attack_at TIMESTAMPTZ DEFAULT NULL, 
-        last_match_action_at TIMESTAMPTZ DEFAULT NULL, current_ego INTEGER DEFAULT 2000, last_ego_update TIMESTAMPTZ DEFAULT NOW(),
+        last_match_action_at TIMESTAMPTZ DEFAULT NULL, current_ego INTEGER DEFAULT 3000, last_ego_update TIMESTAMPTZ DEFAULT NOW(),
         main_char_id INTEGER DEFAULT NULL
     )''')
     
@@ -34,7 +34,6 @@ def init_db():
     cur.execute('''CREATE TABLE IF NOT EXISTS active_events (event_id SERIAL PRIMARY KEY, boss_name TEXT, boss_power INTEGER, reward_black INTEGER, reward_normal INTEGER, is_active BOOLEAN DEFAULT TRUE)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS coach_missions (mission_id SERIAL PRIMARY KEY, player_id BIGINT, mission_type TEXT, target_name TEXT, is_active BOOLEAN DEFAULT TRUE, is_completed BOOLEAN DEFAULT FALSE)''')
     
-    # ستون‌های جدید
     cur.execute('ALTER TABLE players ADD COLUMN IF NOT EXISTS flow_until TIMESTAMPTZ')
     cur.execute('ALTER TABLE players ADD COLUMN IF NOT EXISTS free_gacha_ticket INTEGER DEFAULT 0')
     cur.execute('ALTER TABLE players ADD COLUMN IF NOT EXISTS training_points INTEGER DEFAULT 0')
@@ -199,7 +198,6 @@ def set_active_skin(user_id, char_id, skin_file_id):
     conn.commit(); cur.close(); conn.close()
     return "success"
 
-# ✅ تابعی که ارور میداد اینجاست
 def use_wild_card(user_id, char_id_to_burn):
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute('SELECT team_json FROM players WHERE user_id = %s', (user_id,))
@@ -347,18 +345,18 @@ def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
     if not chosen_char:
         conn.close(); return "no_technique"
 
-    cur.execute('SELECT current_ego FROM players WHERE user_id = %s', (opponent_id,))
-    opponent_data = cur.fetchone()
-    opponent_current_ego = opponent_data['current_ego'] if opponent_data else 2000
-
-    currency_type = "normal"
-    if matched_skill_name in unlocked:
-        currency_type = unlocked[matched_skill_name]
-
+    # رنک بندی جدید و دمیج (طبق درخواست شما)
     rarity = chosen_char['rarity']
-    if rarity == 'Legendary': min_dmg, max_dmg = (300, 400) if currency_type == "black" else (200, 250)
-    elif rarity == 'Epic': min_dmg, max_dmg = (220, 300) if currency_type == "black" else (150, 190)
-    else: min_dmg, max_dmg = (180, 250) if currency_type == "black" else (100, 150)
+    if rarity == 'World Class':
+        min_dmg, max_dmg = (300, 350) if unlocked.get(matched_skill_name) != "black" else (350, 450)
+    elif rarity == 'Mythic':
+        min_dmg, max_dmg = (250, 300) if unlocked.get(matched_skill_name) != "black" else (300, 400)
+    elif rarity == 'Legendary':
+        min_dmg, max_dmg = (150, 200) if unlocked.get(matched_skill_name) != "black" else (250, 350)
+    elif rarity == 'Epic':
+        min_dmg, max_dmg = (100, 150) if unlocked.get(matched_skill_name) != "black" else (150, 250)
+    else: # Rare
+        min_dmg, max_dmg = (80, 120) if unlocked.get(matched_skill_name) != "black" else (100, 200)
 
     min_dmg += chosen_char['bonus_damage']; max_dmg += chosen_char['bonus_damage']
 
@@ -375,7 +373,7 @@ def attack_with_technique(user_id, technique_name, opponent_name, opponent_id):
     if is_flow:
         min_dmg *= 2; max_dmg *= 2
 
-    if currency_type == "black": cooldown_sec = 30
+    if unlocked.get(matched_skill_name) == "black": cooldown_sec = 30
     elif matched_skill_name != chosen_char['technique']: cooldown_sec = 15
     else: cooldown_sec = 5
     
@@ -473,7 +471,7 @@ def check_ego_recovery_all():
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute('''
         UPDATE players 
-        SET current_ego = 2000, last_ego_update = NOW() 
+        SET current_ego = 3000, last_ego_update = NOW() 
         WHERE current_ego <= 0 
         AND (NOW() - last_ego_update) >= interval '15 minutes'
     ''')
@@ -646,76 +644,3 @@ def check_coach_mission(user_id, match_result):
         cur.execute('UPDATE players SET ego = %s, pressure = %s WHERE user_id = %s', (max(0, player['ego'] - 20), min(100, player['pressure'] + 30), user_id))
         cur.execute('UPDATE coach_missions SET is_active = FALSE WHERE mission_id = %s', (mission['mission_id'],))
         conn.commit(); cur.close(); conn.close(); return "failed"
-def check_ego_recovery(user_id):
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute('SELECT current_ego, last_ego_update FROM players WHERE user_id = %s', (user_id,))
-    player = cur.fetchone()
-    if player['current_ego'] < 2000 and player['last_ego_update']:
-        time_passed = datetime.now(player['last_ego_update'].tzinfo) - player['last_ego_update']
-        if time_passed >= timedelta(minutes=15):
-            cur.execute('UPDATE players SET current_ego = 2000, last_ego_update = NOW() WHERE user_id = %s', (user_id,))
-            conn.commit(); cur.close(); conn.close(); return "recovered"
-    cur.close(); conn.close(); return "not_recovered"
-def create_trade_offer(sender_id, receiver_id, sender_char_id, receiver_char_id):
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute('''INSERT INTO trade_offers (sender_id, receiver_id, sender_char_id, receiver_char_id) 
-                   VALUES (%s, %s, %s, %s) RETURNING offer_id''', 
-                (sender_id, receiver_id, sender_char_id, receiver_char_id))
-    offer_id = cur.fetchone()['offer_id']
-    conn.commit(); cur.close(); conn.close()
-    return offer_id
-
-def accept_trade_offer(offer_id):
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute('SELECT * FROM trade_offers WHERE offer_id = %s AND status = \'pending\'', (offer_id,))
-    offer = cur.fetchone()
-    if not offer: conn.close(); return "invalid_offer"
-    
-    # چک کردن اینکه کارت‌ها هنوز توی تیم هستن
-    cur.execute('SELECT team_json FROM players WHERE user_id = %s', (offer['sender_id'],))
-    sender = cur.fetchone()
-    cur.execute('SELECT team_json FROM players WHERE user_id = %s', (offer['receiver_id'],))
-    receiver = cur.fetchone()
-    
-    if offer['sender_char_id'] not in sender['team_json'] or offer['receiver_char_id'] not in receiver['team_json']:
-        conn.close(); return "cards_missing"
-        
-    sender['team_json'].remove(offer['sender_char_id']); sender['team_json'].append(offer['receiver_char_id'])
-    receiver['team_json'].remove(offer['receiver_char_id']); receiver['team_json'].append(offer['sender_char_id'])
-    
-    cur.execute('UPDATE players SET team_json = %s WHERE user_id = %s', (json.dumps(sender['team_json']), offer['sender_id']))
-    cur.execute('UPDATE players SET team_json = %s WHERE user_id = %s', (json.dumps(receiver['team_json']), offer['receiver_id']))
-    cur.execute('UPDATE trade_offers SET status = \'accepted\' WHERE offer_id = %s', (offer_id,))
-    
-    conn.commit(); cur.close(); conn.close()
-    return "success"
-
-def create_legendary_boss(name, power, reward_black, reward_normal):
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute('UPDATE legendary_bosses SET is_active = FALSE')
-    cur.execute('''INSERT INTO legendary_bosses (name, power, hp, reward_black, reward_normal, is_active) 
-                   VALUES (%s, %s, 1000, %s, %s, TRUE)''', (name, power, reward_black, reward_normal))
-    conn.commit(); cur.close(); conn.close()
-
-def get_legendary_boss():
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute('SELECT * FROM legendary_bosses WHERE is_active = TRUE ORDER BY boss_id DESC LIMIT 1')
-    boss = cur.fetchone(); cur.close(); conn.close(); return boss
-
-def fight_legendary_boss(user_id, boss_id, damage_dealt):
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute('SELECT * FROM legendary_bosses WHERE boss_id = %s AND is_active = TRUE', (boss_id,))
-    boss = cur.fetchone()
-    if not boss: conn.close(); return "no_boss"
-    
-    new_hp = boss['hp'] - damage_dealt
-    if new_hp <= 0:
-        cur.execute('UPDATE legendary_bosses SET hp = 0, is_active = FALSE WHERE boss_id = %s', (boss_id,))
-        cur.execute('UPDATE players SET black_coins = black_coins + %s, normal_coins = normal_coins + %s WHERE user_id = %s', 
-                    (boss['reward_black'], boss['reward_normal'], user_id))
-        conn.commit(); cur.close(); conn.close()
-        return {"status": "killed", "reward_black": boss['reward_black'], "reward_normal": boss['reward_normal']}
-    else:
-        cur.execute('UPDATE legendary_bosses SET hp = %s WHERE boss_id = %s', (new_hp, boss_id))
-        conn.commit(); cur.close(); conn.close()
-        return {"status": "damaged", "remaining_hp": new_hp}
