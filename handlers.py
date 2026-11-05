@@ -18,7 +18,7 @@ def is_active(schedule_json):
         if s > e and (hour >= s or hour < e): return slot["active"]
     return False
 
-# ---------- پروفایل (با خطایاب) ----------
+# ---------- پروفایل ----------
 @router.message(Command("profile"))
 async def profile(message: Message):
     try:
@@ -100,23 +100,36 @@ async def npc_reply(message: Message):
         with engine.begin() as conn:
             npcs = conn.execute(text("SELECT * FROM npcs WHERE chat_id=:c"), {"c": chat_id}).fetchall()
             target = next((npc for npc in npcs if npc[2] in text or npc[3] in text), None)
-            if not target: return
-            if not is_active(target[4]): return await message.answer(f"🍞 {target[2]}: {random.choice(BAKER_TEMPLATES['closed'])}")
+            
+            if not target: 
+                return # اگر اسم نانوا توی متن نبود، هیچی نگو
+            
+            if not is_active(target[4]): 
+                await message.answer(f"🍞 {target[2]}: {random.choice(BAKER_TEMPLATES['closed'])}")
+                return
+            
             rel = conn.execute(text("SELECT trust, grudge FROM social_edges WHERE from_id=:f AND to_id=:t"), {"f": target[0], "t": user_id}).fetchone()
             trust, grudge = (rel[0] if rel else 50), (rel[1] if rel else 0)
             tl = text.lower()
+            
             if any(w in tl for w in ["سلام", "صبح"]):
                 tpl = "greet_high" if trust > 60 else "greet_low"
-                await message.answer(f"🍞 {target[2]}: {random.choice(BAKER_TEMPLATES[tpl]).format(name=message.from_user.first_name)}")
+                answer = random.choice(BAKER_TEMPLATES[tpl]).format(name=message.from_user.first_name)
+                await message.answer(f"🍞 {target[2]}: {answer}")
+                
             elif any(w in tl for w in ["بده", "بخر", "نان"]):
-                if trust < 30: await message.answer(f"🍞 {target[2]}: {random.choice(BAKER_TEMPLATES['buy_no_trust'])}")
-                elif grudge > 50: await message.answer(f"🍞 {target[2]}: قیمت برای تو دو برابر است.")
+                if trust < 30: 
+                    await message.answer(f"🍞 {target[2]}: {random.choice(BAKER_TEMPLATES['buy_no_trust'])}")
+                elif grudge > 50: 
+                    await message.answer(f"🍞 {target[2]}: قیمت برای تو دو برابر است.")
                 else:
                     await message.answer(f"🍞 {target[2]}: {random.choice(BAKER_TEMPLATES['buy_ok']).format(price=10)}")
                     conn.execute(text("UPDATE social_edges SET trust=LEAST(100, trust+2) WHERE from_id=:f AND to_id=:t"), {"f": target[0], "t": user_id})
+                    
             elif any(w in tl for w in ["احمق", "بد"]):
                 conn.execute(text("UPDATE social_edges SET grudge=LEAST(100, grudge+20), trust=GREATEST(0, trust-10) WHERE from_id=:f AND to_id=:t"), {"f": target[0], "t": user_id})
                 await message.answer(f"🍞 {target[2]}: {random.choice(BAKER_TEMPLATES['insult'])}")
+                
     except Exception as e:
         await message.answer(f"⚠️ خطای NPC:\n{str(e)}")
 
