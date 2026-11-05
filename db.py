@@ -4,10 +4,20 @@ import json
 
 # رشته اتصال به Supabase
 db_url = DATABASE_URL
+
+# تبدیل postgres:// به postgresql:// (در صورت نیاز)
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+# 🔴 اجبار SQLAlchemy به استفاده از درایور psycopg2 (رفع خطای ModuleNotFoundError)
+if "postgresql://" in db_url:
+    db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+# اضافه کردن SSL برای Supabase
 if "sslmode" not in db_url:
     db_url += "?sslmode=require" if "?" not in db_url else "&sslmode=require"
 
-# ساخت موتور دیتابیس با تنظیمات اتصال پایدار
+# ساخت موتور دیتابیس
 engine = create_engine(
     db_url, 
     pool_pre_ping=True, 
@@ -60,7 +70,7 @@ def init_db():
         # چک کردن اینکه آیا نانوا وجود دارد یا نه
         exists = conn.execute(text("SELECT id FROM npcs WHERE role='نانوا' LIMIT 1")).fetchone()
         
-        # اگر نانوا نبود، برای اولین گروه ساخته می‌شود
+        # اگر نانوا نبود، اضافه می‌شود
         if not exists:
             conn.execute(text("""
                 INSERT INTO npcs (name, role, schedule, coins)
