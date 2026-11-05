@@ -112,7 +112,11 @@ async def bank(message: Message):
     if len(args) < 3 or args[1] not in ["deposit", "withdraw"]:
         return await message.answer("استفاده: `/bank deposit 50` یا `/bank withdraw 50`")
     
-    action, amount = args[1], int(args[2])
+    try:
+        action, amount = args[1], int(args[2])
+    except:
+        return await message.answer("عدد نامعتبر است.")
+
     chat_id, user_id = message.chat.id, message.from_user.id
     
     with engine.begin() as conn:
@@ -242,16 +246,59 @@ async def npc_reply(message: Message):
         elif any(w in tl for w in ["بده", "نان"]):
             await message.answer(f"🍞 {target[2]}: نان ۱۰ سکه." if trust >= 30 else f"🍞 {target[2]}: به تو نمی‌فروشم.")
 
-# ---------- ادمین و بقیه دستورات (مثل قبل) ----------
-@router.message(Command("set_job"))
-async def set_job(message: Message):
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2: return await message.answer("/set_job شاگرد نانوا")
-    job = args[1].strip()
-    if job not in JOBS: return await message.answer("نامعتبر.")
+# ---------- ادمین ----------
+def is_admin(uid): return uid in ADMIN_IDS
+
+@router.message(Command("admin_stats"))
+async def admin_stats(message: Message):
+    if not is_admin(message.from_user.id): return
     with engine.begin() as conn:
-        p = conn.execute(text("SELECT id FROM players WHERE chat_id=:c AND user_id=:u"), {"c": message.chat.id, "u": message.from_user.id}).fetchone()
-        if not p: return await message.answer("اول /profile")
-        npc = conn.execute(text("SELECT id FROM npcs WHERE role=:r"), {"r": JOBS[job]["employer_role"]}).fetchone()
-        if npc: conn.execute(text("UPDATE players SET job=:j, employer_npc_id=:e WHERE chat_id=:c AND user_id=:u"), {"j": job, "e": npc[0], "c": message.chat.id, "u": message.from_user.id})
-    await message.answer(f"✅ شغل تو: {job}")
+        p = conn.execute(text("SELECT COUNT(*) FROM players")).scalar()
+        n = conn.execute(text("SELECT COUNT(*) FROM npcs")).scalar()
+    await message.answer(f"📊 بازیکن‌ها: {p}\n🤖 NPCها: {n}")
+
+@router.message(Command("setcoins"))
+async def admin_set_coins(message: Message):
+    if not is_admin(message.from_user.id): return
+    args = message.text.split()
+    if len(args) < 3: return
+    try: uid, amt = int(args[1]), int(args[2])
+    except: return
+    with engine.begin() as conn:
+        res = conn.execute(text("UPDATE players SET coins=:a WHERE user_id=:u"), {"a": amt, "u": uid})
+    await message.answer(f"✅ {uid} = {amt}" if res.rowcount else f"❌ {uid} پیدا نشد.")
+
+@router.message(Command("broadcast"))
+async def admin_broadcast(message: Message):
+    if not is_admin(message.from_user.id): return
+    msg = message.text.replace("/broadcast", "").strip()
+    if not msg: return
+    with engine.begin() as conn:
+        chats = conn.execute(text("SELECT DISTINCT chat_id FROM players")).fetchall()
+    for (cid,) in chats:
+        try: await message.bot.send_message(cid, f"📢 {msg}")
+        except: pass
+    await message.answer("ارسال شد.")
+
+# ---------- 🆙 دستور ادمین برای افزایش لول ----------
+@router.message(Command("addlevel"))
+async def admin_add_level(message: Message):
+    if not is_admin(message.from_user.id): return
+    args = message.text.split()
+    if len(args) < 3: 
+        return await message.answer("استفاده: `/addlevel [آیدی کاربر] [تعداد لول]`")
+    
+    try: 
+        uid, lvl_amount = int(args[1]), int(args[2])
+    except: 
+        return await message.answer("عدد نامعتبر است.")
+        
+    try:
+        with engine.begin() as conn:
+            res = conn.execute(text("UPDATE players SET level=level+:l WHERE user_id=:u"), {"l": lvl_amount, "u": uid})
+        if res.rowcount:
+            await message.answer(f"✅ لول کاربر {uid} به اندازه {lvl_amount} افزایش یافت.")
+        else:
+            await message.answer(f"❌ کاربر {uid} پیدا نشد.")
+    except Exception as e:
+        await message.answer(f"⚠️ خطای لول:\n{str(e)}")
