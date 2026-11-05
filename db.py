@@ -1,13 +1,18 @@
 from sqlalchemy import create_engine, text
+from sqlalchemy.pool import NullPool
 from config import DATABASE_URL
 import json
 
 db_url = DATABASE_URL
-if db_url.startswith("postgres://"): db_url = db_url.replace("postgres://", "postgresql://", 1)
-if "postgresql://" in db_url: db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
-if "sslmode" not in db_url: db_url += "?sslmode=require" if "?" not in db_url else "&sslmode=require"
+if db_url.startswith("postgres://"): 
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+if "postgresql://" in db_url: 
+    db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+if "sslmode" not in db_url: 
+    db_url += "?sslmode=require" if "?" not in db_url else "&sslmode=require"
 
-engine = create_engine(db_url, pool_pre_ping=True, pool_size=3, max_overflow=2)
+# استفاده از NullPool برای Transaction Mode (پورت 6543)
+engine = create_engine(db_url, poolclass=NullPool)
 
 def init_db():
     with engine.begin() as conn:
@@ -24,18 +29,12 @@ def init_db():
             UNIQUE(chat_id, user_id)
         );"""))
         
-        try:
-            conn.execute(text("ALTER TABLE players ADD COLUMN chicken_name TEXT DEFAULT 'جوجه'"))
-            conn.execute(text("ALTER TABLE players ADD COLUMN chicken_level INTEGER DEFAULT 1"))
-            conn.execute(text("ALTER TABLE players ADD COLUMN chicken_eggs INTEGER DEFAULT 0"))
-        except:
-            pass
-
         conn.execute(text("""
         CREATE TABLE IF NOT EXISTS npcs (
             id SERIAL PRIMARY KEY, chat_id BIGINT, name TEXT, role TEXT,
             schedule TEXT, coins INTEGER DEFAULT 500
         );"""))
+        
         conn.execute(text("""
         CREATE TABLE IF NOT EXISTS social_edges (
             id SERIAL PRIMARY KEY, from_id BIGINT, to_id BIGINT,
@@ -43,17 +42,15 @@ def init_db():
             last_interaction TIMESTAMP, UNIQUE(from_id, to_id)
         );"""))
         
-        # --- اضافه کردن تمام NPCها به دیتابیس ---
         npc_list = [
             ("نانوا", "نانوا"), ("نگهبان", "نگهبان"), ("کشاورز", "کشاورز"),
             ("معدن‌کار", "معدن‌کار"), ("شکارچی", "شکارچی"), ("دکتر", "دکتر"),
             ("معلم", "معلم"), ("پلیس", "پلیس"), ("سایه", "کلاهبردار")
         ]
+        default_schedule = json.dumps([{"start": 0, "end": 24, "active": True}], ensure_ascii=False)
         
         for name, role in npc_list:
             exists = conn.execute(text("SELECT id FROM npcs WHERE role=:r LIMIT 1"), {"r": role}).fetchone()
             if not exists:
-                # همه به جز سایه (کلاهبردار) ساعت کاری ۲۴ ساعته دارن
-                schedule = [{"start": 0, "end": 24, "active": True}]
-                conn.execute(text("INSERT INTO npcs (name, role, schedule, coins) VALUES (:name, :role, :schedule, 1000)"), 
-                             {"name": name, "role": role, "schedule": json.dumps(schedule, ensure_ascii=False)})
+                conn.execute(text("INSERT INTO npcs (name, role, schedule, coins) VALUES (:name, :role, :schedule, 5000)"), 
+                             {"name": name, "role": role, "schedule": default_schedule})
