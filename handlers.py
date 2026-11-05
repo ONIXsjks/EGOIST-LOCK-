@@ -274,6 +274,64 @@ async def process_buy_chicken(user_id, chat_id, event_obj):
         conn.execute(text("UPDATE players SET coins=coins-100, chicken_level=1 WHERE user_id=:u"), {"u": user_id})
     await event_obj.answer("🐣 تبریک! تو یک جوجه خریدی! حالا هر ۵ دقیقه برات دونه جمع می‌کنه.", show_alert=True)
 
+# ---------- پنل ادمین و دکمه‌هایش ----------
+@router.callback_query(F.data.startswith("admin_"))
+async def cb_admin(call: CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS: return await call.answer("❌ تو ادمین نیستی!", show_alert=True)
+    
+    if call.data == "admin_stats":
+        with engine.begin() as conn:
+            players = conn.execute(text("SELECT COUNT(*) FROM players")).scalar()
+            npcs = conn.execute(text("SELECT COUNT(*) FROM npcs")).scalar()
+            chickens = conn.execute(text("SELECT COUNT(*) FROM players WHERE chicken_level > 0")).scalar()
+        await call.message.edit_text(f"📊 **آمار شهر:**\n👤 بازیکن‌ها: {players}\n🤖 NPCها: {npcs}\n🐥 جوجه‌ها: {chickens}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ بازگشت", callback_data="admin_back")]]))
+    
+    elif call.data == "admin_coins":
+        with engine.begin() as conn:
+            players = conn.execute(text("SELECT display_name, user_id FROM players WHERE chat_id=:c LIMIT 10"), {"c": call.message.chat.id}).fetchall()
+        keyboard = []
+        for p_name, p_id in players:
+            keyboard.append([InlineKeyboardButton(text=f"👤 {p_name}", callback_data=f"givecoin_{p_id}")])
+        keyboard.append([InlineKeyboardButton(text="↩️ بازگشت", callback_data="admin_back")])
+        await call.message.edit_text("💰 **به کی دونه بدی؟**\nیکی از بازیکن‌های زیر رو انتخاب کن:", reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+        
+    elif call.data == "admin_level":
+        with engine.begin() as conn:
+            players = conn.execute(text("SELECT display_name, user_id FROM players WHERE chat_id=:c LIMIT 10"), {"c": call.message.chat.id}).fetchall()
+        keyboard = []
+        for p_name, p_id in players:
+            keyboard.append([InlineKeyboardButton(text=f"👤 {p_name}", callback_data=f"givelevel_{p_id}")])
+        keyboard.append([InlineKeyboardButton(text="↩️ بازگشت", callback_data="admin_back")])
+        await call.message.edit_text("🆙 **به کی لول بدی؟**\nیکی از بازیکن‌های زیر رو انتخاب کن:", reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+        
+    elif call.data == "admin_broadcast":
+        await call.message.edit_text("📢 برای پیام همگانی تایپ کن:\n`/broadcast [متن]`", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ بازگشت", callback_data="admin_back")]]))
+        
+    elif call.data == "admin_back":
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📊 آمار شهر", callback_data="admin_stats")],
+            [InlineKeyboardButton(text="💰 دادن دونه", callback_data="admin_coins")],
+            [InlineKeyboardButton(text="🆙 دادن لول", callback_data="admin_level")],
+            [InlineKeyboardButton(text="📢 پیام همگانی", callback_data="admin_broadcast")]
+        ])
+        await call.message.edit_text("👑 **پنل ادمین (خدای شهر)**\n➖➖➖➖➖➖➖➖➖➖\nیکی از گزینه‌ها رو انتخاب کن:", reply_markup=keyboard)
+
+@router.callback_query(F.data.startswith("givecoin_"))
+async def cb_give_coin(call: CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS: return await call.answer("❌ تو ادمین نیستی!", show_alert=True)
+    target_id = int(call.data.split("_")[1])
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE players SET coins=coins+5000 WHERE user_id=:u"), {"u": target_id})
+    await call.answer("✅ ۵۰۰۰ دونه به بازیکن داده شد!", show_alert=True)
+
+@router.callback_query(F.data.startswith("givelevel_"))
+async def cb_give_level(call: CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS: return await call.answer("❌ تو ادمین نیستی!", show_alert=True)
+    target_id = int(call.data.split("_")[1])
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE players SET level=level+10 WHERE user_id=:u"), {"u": target_id})
+    await call.answer("✅ ۱۰ لول به بازیکن داده شد!", show_alert=True)
+
 @router.callback_query(F.data.startswith("setjob_"))
 async def cb_setjob(call: CallbackQuery):
     data = call.data.split("_")
@@ -323,70 +381,6 @@ async def cb_rest(call: CallbackQuery):
 async def cb_dig(call: CallbackQuery):
     if call.from_user.id != int(call.data.split("_")[1]): return await call.answer("❌ پنل شخصی است!", show_alert=True)
     await process_dig(call.from_user.id, call.message.chat.id, call)
-
-# ---------- ادمین ----------
-@router.callback_query(F.data.startswith("admin_"))
-async def cb_admin(call: CallbackQuery):
-    if call.from_user.id not in ADMIN_IDS: return await call.answer("❌ تو ادمین نیستی!", show_alert=True)
-    
-    if call.data == "admin_stats":
-        with engine.begin() as conn:
-            players = conn.execute(text("SELECT COUNT(*) FROM players")).scalar()
-            npcs = conn.execute(text("SELECT COUNT(*) FROM npcs")).scalar()
-            chickens = conn.execute(text("SELECT COUNT(*) FROM players WHERE chicken_level > 0")).scalar()
-        await call.message.edit_text(f"📊 **آمار شهر:**\n👤 بازیکن‌ها: {players}\n🤖 NPCها: {npcs}\n🐥 جوجه‌ها: {chickens}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ بازگشت", callback_data="admin_back")]]))
-    
-    elif call.data == "admin_coins":
-        await call.message.edit_text("💰 برای دادن دونه تایپ کن:\n`/setcoins [آیدی] [تعداد]`", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ بازگشت", callback_data="admin_back")]]))
-        
-    elif call.data == "admin_level":
-        await call.message.edit_text("🆙 برای دادن لول تایپ کن:\n`/addlevel [آیدی] [تعداد]`", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ بازگشت", callback_data="admin_back")]]))
-        
-    elif call.data == "admin_broadcast":
-        await call.message.edit_text("📢 برای پیام همگانی تایپ کن:\n`/broadcast [متن]`", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ بازگشت", callback_data="admin_back")]]))
-        
-    elif call.data == "admin_back":
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📊 آمار شهر", callback_data="admin_stats")],
-            [InlineKeyboardButton(text="💰 دادن دونه", callback_data="admin_coins")],
-            [InlineKeyboardButton(text="🆙 دادن لول", callback_data="admin_level")],
-            [InlineKeyboardButton(text="📢 پیام همگانی", callback_data="admin_broadcast")]
-        ])
-        await call.message.edit_text("👑 **پنل ادمین (خدای شهر)**\n➖➖➖➖➖➖➖➖➖➖\nیکی از گزینه‌ها رو انتخاب کن:", reply_markup=keyboard)
-
-@router.message(Command("setcoins"))
-async def admin_set_coins(message: Message):
-    if message.from_user.id not in ADMIN_IDS: return
-    args = message.text.split()
-    if len(args) < 3: return await message.answer("استفاده: `/setcoins [آیدی] [تعداد]`")
-    try:
-        with engine.begin() as conn:
-            res = conn.execute(text("UPDATE players SET coins=:a WHERE user_id=:u"), {"a": int(args[2]), "u": int(args[1])})
-        await message.answer(f"✅ دونه‌های {args[1]} تنظیم شد." if res.rowcount else "❌ پیدا نشد.")
-    except: pass
-
-@router.message(Command("addlevel"))
-async def admin_add_level(message: Message):
-    if message.from_user.id not in ADMIN_IDS: return
-    args = message.text.split()
-    if len(args) < 3: return await message.answer("استفاده: `/addlevel [آیدی] [تعداد]`")
-    try:
-        with engine.begin() as conn:
-            res = conn.execute(text("UPDATE players SET level=level+:l WHERE user_id=:u"), {"l": int(args[2]), "u": int(args[1])})
-        await message.answer(f"✅ لول {args[1]} افزایش یافت." if res.rowcount else "❌ پیدا نشد.")
-    except: pass
-
-@router.message(Command("broadcast"))
-async def admin_broadcast(message: Message):
-    if message.from_user.id not in ADMIN_IDS: return
-    msg = message.text.replace("/broadcast", "").strip()
-    if not msg: return await message.answer("متن پیام رو بنویس.")
-    with engine.begin() as conn:
-        chats = conn.execute(text("SELECT DISTINCT chat_id FROM players")).fetchall()
-    for (cid,) in chats:
-        try: await message.bot.send_message(cid, f"📢 **اطلاعیه ادمین:**\n{msg}")
-        except: pass
-    await message.answer("✅ ارسال شد.")
 
 # ---------- حمله، دزدی و NPC ----------
 @router.message(F.text.lower() == "جوجو حمله")
