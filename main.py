@@ -7,7 +7,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from config import TOKEN
 from db import init_db, engine
-from handlers_main import router  # اینجا فایل اصلی رو ایمپورت می‌کنیم
+from handlers import router  # ایمپورت کردن همه کدها از فایل handlers.py
 from sqlalchemy import text
 
 # لیست رویدادهای خودکار شهر
@@ -41,7 +41,7 @@ async def event_loop(bot: Bot):
                             pass
         except Exception as e:
             print(f"Event Loop Error: {e}")
-        await asyncio.sleep(10800) # هر ۳ ساعت
+        await asyncio.sleep(10800) # هر ۳ ساعت (10800 ثانیه)
 
 async def health_check(request):
     return web.Response(text="OK")
@@ -67,6 +67,7 @@ async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     print("✅ Webhook deleted. Starting polling...")
 
+    # اجرای همزمان وب‌سرور (برای رندر) و حلقه رویدادها (برای بازی)
     asyncio.create_task(start_web_server())
     asyncio.create_task(event_loop(bot))
 
