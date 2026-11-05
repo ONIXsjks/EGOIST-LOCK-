@@ -9,7 +9,7 @@ db_url = DATABASE_URL
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-# 🔴 اجبار SQLAlchemy به استفاده از درایور psycopg2 (رفع خطای ModuleNotFoundError)
+# اجبار SQLAlchemy به استفاده از درایور psycopg2
 if "postgresql://" in db_url:
     db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 
@@ -70,7 +70,7 @@ def init_db():
         # چک کردن اینکه آیا نانوا وجود دارد یا نه
         exists = conn.execute(text("SELECT id FROM npcs WHERE role='نانوا' LIMIT 1")).fetchone()
         
-        # اگر نانوا نبود، اضافه می‌شود
+        # اگر نانوا نبود، برای اولین گروه ساخته می‌شود
         if not exists:
             conn.execute(text("""
                 INSERT INTO npcs (name, role, schedule, coins)
