@@ -1,5 +1,5 @@
 from sqlalchemy import create_engine, text
-from config import DATABASE_URL, BAKER_SCHEDULE
+from config import DATABASE_URL
 import json
 
 db_url = DATABASE_URL
@@ -24,7 +24,6 @@ def init_db():
             UNIQUE(chat_id, user_id)
         );"""))
         
-        # اگر ستون‌های جوجه از قبل وجود نداشتن، به جدول اضافه میشن
         try:
             conn.execute(text("ALTER TABLE players ADD COLUMN chicken_name TEXT DEFAULT 'جوجه'"))
             conn.execute(text("ALTER TABLE players ADD COLUMN chicken_level INTEGER DEFAULT 1"))
@@ -44,14 +43,17 @@ def init_db():
             last_interaction TIMESTAMP, UNIQUE(from_id, to_id)
         );"""))
         
-        # ساخت نانوا (اگر نباشه)
-        exists = conn.execute(text("SELECT id FROM npcs WHERE role='نانوا' LIMIT 1")).fetchone()
-        if not exists:
-            conn.execute(text("INSERT INTO npcs (name, role, schedule, coins) VALUES (:name, :role, :schedule, 500)"), 
-                         {"name": "نانوا", "role": "نانوا", "schedule": json.dumps([{"start": 0, "end": 24, "active": True}], ensure_ascii=False)})
+        # --- اضافه کردن تمام NPCها به دیتابیس ---
+        npc_list = [
+            ("نانوا", "نانوا"), ("نگهبان", "نگهبان"), ("کشاورز", "کشاورز"),
+            ("معدن‌کار", "معدن‌کار"), ("شکارچی", "شکارچی"), ("دکتر", "دکتر"),
+            ("معلم", "معلم"), ("پلیس", "پلیس"), ("سایه", "کلاهبردار")
+        ]
         
-        # ساخت کلاهبردار (اگر نباشه)
-        exists_thief = conn.execute(text("SELECT id FROM npcs WHERE role='کلاهبردار' LIMIT 1")).fetchone()
-        if not exists_thief:
-            conn.execute(text("INSERT INTO npcs (name, role, schedule, coins) VALUES (:name, :role, :schedule, 1000)"), 
-                         {"name": "سایه", "role": "کلاهبردار", "schedule": json.dumps([{"start": 0, "end": 24, "active": True}], ensure_ascii=False)})
+        for name, role in npc_list:
+            exists = conn.execute(text("SELECT id FROM npcs WHERE role=:r LIMIT 1"), {"r": role}).fetchone()
+            if not exists:
+                # همه به جز سایه (کلاهبردار) ساعت کاری ۲۴ ساعته دارن
+                schedule = [{"start": 0, "end": 24, "active": True}]
+                conn.execute(text("INSERT INTO npcs (name, role, schedule, coins) VALUES (:name, :role, :schedule, 1000)"), 
+                             {"name": name, "role": role, "schedule": json.dumps(schedule, ensure_ascii=False)})
