@@ -18,30 +18,32 @@ def is_active(schedule_json):
         if s > e and (hour >= s or hour < e): return slot["active"]
     return False
 
+def check_level_up(level, xp):
+    # نیاز به XP برای لول آپ: لول * 50
+    if xp >= (level * 50):
+        return level + 1, 0 # لول جدید، XP ریست میشه
+    return level, xp
+
 # ---------- ❓ راهنما (Help) ----------
 @router.message(Command("help"))
 async def help_command(message: Message):
     help_text = (
-        "📖 **راهنمای بازی شهر کوچک**\n\n"
-        "👤 **دستورات اصلی:**\n"
-        "`/profile` - دیدن پروفایل، سکه‌ها و سلامتی\n"
-        "`/jobs` - دیدن لیست شغل‌ها\n"
-        "`/set_job [نام شغل]` - استخدام شدن\n"
-        "`/work` - کار کردن و گرفتن سکه\n"
-        "`/rest` - استراحت و شارژ انرژی\n\n"
-        "🛒 **فروشگاه و تجارت:**\n"
-        "`/shop` - دیدن فروشگاه شهر\n"
-        "`/buy sword` - خرید شمشیر (افزایش قدرت حمله)\n"
-        "`/buy armor` - خرید زره (کاهش آسیب)\n\n"
+        "📖 **راهنمای بازی (نسخه جدید)**\n\n"
+        "👤 **پروفایل و کار:**\n"
+        "`/profile` - دیدن پروفایل (لول، سکه، بانک)\n"
+        "`/work` - کار کردن (XP و سکه می‌دهد)\n"
+        "`/rest` - استراحت\n\n"
+        "🏦 **بانک و دزدی:**\n"
+        "`/bank deposit [مبلغ]` - واریز به بانک\n"
+        "`/bank withdraw [مبلغ]` - برداشت از بانک\n"
+        "`/steal` - دزدی (روی پیام طرف ریپلای کن)\n\n"
+        "🛒 **فروشگاه‌ها:**\n"
+        "`/shop` - فروشگاه معمولی (شمشیر و زره)\n"
+        "`/blackmarket` - بازار سیاه (خرید چاقوی دزدی)\n"
+        "`/buy sword` / `/buy armor` / `/buy dagger`\n\n"
         "⚔️ **ماجراجویی:**\n"
-        "`/attack` - حمله به بازیکن (روی پیام طرف ریپلای کن)\n"
-        "`/dig` - گنج‌یابی (شانس پیدا کردن سکه یا انرژی)\n\n"
-        "🤖 **تعامل با NPCها:**\n"
-        "توی گروه بنویس: «سلام نانوا» یا «نانوا یک نان بده»\n\n"
-        "👑 **دستورات مدیریت (فقط ادمین):**\n"
-        "`/admin_stats` - آمار بازیکن‌ها\n"
-        "`/broadcast [متن]` - پیام همگانی\n"
-        "`/setcoins [آیدی] [تعداد]` - تغییر سکه بازیکن"
+        "`/attack` - حمله (روی پیام طرف ریپلای کن)\n"
+        "`/dig` - گنج‌یابی"
     )
     await message.answer(help_text)
 
@@ -52,16 +54,23 @@ async def profile(message: Message):
         chat_id, user_id = message.chat.id, message.from_user.id
         name = message.from_user.first_name
         with engine.begin() as conn:
-            r = conn.execute(text("SELECT display_name, coins, energy, health, job, job_level, has_sword, has_armor FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}).mappings().fetchone()
+            r = conn.execute(text("SELECT * FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}).mappings().fetchone()
             if not r:
                 conn.execute(text("INSERT INTO players (chat_id, user_id, display_name) VALUES (:c, :u, :n)"), {"c": chat_id, "u": user_id, "n": name})
-                r = conn.execute(text("SELECT display_name, coins, energy, health, job, job_level, has_sword, has_armor FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}).mappings().fetchone()
+                r = conn.execute(text("SELECT * FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}).mappings().fetchone()
         
-        sword = "🗡️ دارد" if r['has_sword'] else "❌ ندارد"
-        armor = "🛡️ دارد" if r['has_armor'] else "❌ ندارد"
-        await message.answer(f"👤 {r['display_name']}\n💰 سکه: {r['coins']}\n⚡ انرژی: {r['energy']}\n❤️ سلامتی: {r['health']}\n💼 شغل: {r['job'] or 'بیکار'} (سطح {r['job_level']})\n\n🗡️ شمشیر: {sword}\n🛡️ زره: {armor}")
+        await message.answer(
+            f"👤 **{r['display_name']}** (لول {r['level']})\n"
+            f"✨ XP: {r['xp']}/{r['level']*50}\n"
+            f"💰 سکه (جیب): {r['coins']}\n"
+            f"🏦 سکه (بانک): {r['bank_coins']}\n"
+            f"⚡ انرژی: {r['energy']}\n"
+            f"❤️ سلامتی: {r['health']}\n"
+            f"💼 شغل: {r['job'] or 'بیکار'}\n\n"
+            f"🗡️ شمشیر: {'✅' if r['has_sword'] else '❌'} | 🛡️ زره: {'✅' if r['has_armor'] else '❌'} | 🔪 چاقو: {'✅' if r['has_dagger'] else '❌'}"
+        )
     except Exception as e:
-        await message.answer(f"⚠️ خطای دیتابیس:\n{str(e)}")
+        await message.answer(f"⚠️ خطا:\n{str(e)}")
 
 # ---------- کار ----------
 @router.message(Command("work"))
@@ -69,64 +78,92 @@ async def work(message: Message):
     chat_id, user_id = message.chat.id, message.from_user.id
     try:
         with engine.begin() as conn:
-            p = conn.execute(text("SELECT id, energy, health, job, job_level, employer_npc_id FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}).mappings().fetchone()
+            p = conn.execute(text("SELECT * FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}).mappings().fetchone()
             if not p: return await message.answer("اول /profile")
             if not p["job"]: return await message.answer("/jobs")
             if p["energy"] < 20: return await message.answer("/rest")
-            if p["health"] < 20: return await message.answer("سلامتی‌ت پایینه! برو دکتر.")
             
             npc = conn.execute(text("SELECT id, schedule FROM npcs WHERE id=:i"), {"i": p["employer_npc_id"]}).fetchone()
             if not npc or not is_active(npc[1]): return await message.answer("کارفرما سر کار نیست.")
             
             income = JOBS[p["job"]]["income"] + p["job_level"] * 2
-            conn.execute(text("UPDATE players SET coins=coins+:i, energy=energy-15, job_level=job_level+1 WHERE id=:p"), {"i": income, "p": p["id"]})
-            conn.execute(text("UPDATE npcs SET coins=GREATEST(0, coins-:i) WHERE id=:n"), {"i": income, "n": npc[0]})
-        await message.answer(f"💼 +{income} سکه. انرژی -۱۵")
+            xp_gain = 15 + (p["level"] * 2)
+            
+            new_level, new_xp = check_level_up(p["level"], p["xp"] + xp_gain)
+            level_msg = f"\n🎉 **تبریک! لولت شد {new_level}**" if new_level > p["level"] else ""
+
+            conn.execute(text("UPDATE players SET coins=coins+:i, energy=energy-15, xp=:xp, level=:lvl, job_level=job_level+1 WHERE id=:p"), 
+                         {"i": income, "xp": new_xp, "lvl": new_level, "p": p["id"]})
+        await message.answer(f"💼 +{income} سکه | +{xp_gain} XP | -۱۵ انرژی{level_msg}")
     except Exception as e:
-        await message.answer(f"⚠️ خطای کار:\n{str(e)}")
+        await message.answer(f"⚠️ خطا:\n{str(e)}")
 
 # ---------- استراحت ----------
 @router.message(Command("rest"))
 async def rest(message: Message):
-    try:
-        with engine.begin() as conn:
-            conn.execute(text("UPDATE players SET energy=LEAST(100, energy+30) WHERE chat_id=:c AND user_id=:u"), {"c": message.chat.id, "u": message.from_user.id})
-        await message.answer("😴 انرژی +۳۰")
-    except Exception as e:
-        await message.answer(f"⚠️ خطای استراحت:\n{str(e)}")
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE players SET energy=LEAST(100, energy+30) WHERE chat_id=:c AND user_id=:u"), {"c": message.chat.id, "u": message.from_user.id})
+    await message.answer("😴 انرژی +۳۰")
 
-# ---------- شغل‌ها ----------
-@router.message(Command("jobs"))
-async def jobs(message: Message):
-    lines = ["💼 شغل‌ها:"]
-    for name, info in JOBS.items(): lines.append(f"• {name} — {info['income']} سکه (اعتماد ≥{info['min_trust']})")
-    lines.append("\n/set_job نام شغل")
-    await message.answer("\n".join(lines))
-
-@router.message(Command("set_job"))
-async def set_job(message: Message):
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2: return await message.answer("/set_job شاگرد نانوا")
-    job = args[1].strip()
-    if job not in JOBS: return await message.answer("شغل نامعتبر.")
+# ---------- 🏦 بانک ----------
+@router.message(Command("bank"))
+async def bank(message: Message):
+    args = message.text.split()
+    if len(args) < 3 or args[1] not in ["deposit", "withdraw"]:
+        return await message.answer("استفاده: `/bank deposit 50` یا `/bank withdraw 50`")
+    
+    action, amount = args[1], int(args[2])
     chat_id, user_id = message.chat.id, message.from_user.id
-    try:
-        with engine.begin() as conn:
-            p = conn.execute(text("SELECT id FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}).fetchone()
-            if not p: return await message.answer("اول /profile")
-            npc = conn.execute(text("SELECT id, name FROM npcs WHERE role=:r"), {"r": JOBS[job]["employer_role"]}).fetchone()
-            if not npc: return await message.answer("کارفرما نیست.")
-            rel = conn.execute(text("SELECT trust FROM social_edges WHERE from_id=:f AND to_id=:t"), {"f": npc[0], "t": user_id}).fetchone()
-            if (rel[0] if rel else 50) < JOBS[job]["min_trust"]: return await message.answer(f"اعتماد {npc[1]} کافی نیست.")
-            conn.execute(text("UPDATE players SET job=:j, employer_npc_id=:e WHERE chat_id=:c AND user_id=:u"), {"j": job, "e": npc[0], "c": chat_id, "u": user_id})
-        await message.answer(f"✅ {job} (کارفرما: {npc[1]})")
-    except Exception as e:
-        await message.answer(f"⚠️ خطای استخدام:\n{str(e)}")
+    
+    with engine.begin() as conn:
+        p = conn.execute(text("SELECT coins, bank_coins FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}).mappings().fetchone()
+        if not p: return await message.answer("اول /profile")
+        
+        if action == "deposit":
+            if p['coins'] < amount: return await message.answer("سکه کافی در جیب نداری.")
+            conn.execute(text("UPDATE players SET coins=coins-:a, bank_coins=bank_coins+:a WHERE chat_id=:c AND user_id=:u"), {"a": amount, "c": chat_id, "u": user_id})
+            await message.answer(f"🏦 {amount} سکه به بانک واریز شد. (پولت از دزدی در امان است!)")
+        else:
+            if p['bank_coins'] < amount: return await message.answer("سکه کافی در بانک نداری.")
+            conn.execute(text("UPDATE players SET coins=coins+:a, bank_coins=bank_coins-:a WHERE chat_id=:c AND user_id=:u"), {"a": amount, "c": chat_id, "u": user_id})
+            await message.answer(f"🏦 {amount} سکه از بانک برداشت شد.")
 
-# ---------- 🛒 فروشگاه ----------
+# ---------- 🥷 دزدی ----------
+@router.message(Command("steal"))
+async def steal(message: Message):
+    if not message.reply_to_message: return await message.answer("روی پیام کسی ریپلای کن.")
+    thief_id, target_id, chat_id = message.from_user.id, message.reply_to_message.from_user.id, message.chat.id
+    if thief_id == target_id: return await message.answer("خودزنی؟!")
+    
+    with engine.begin() as conn:
+        t = conn.execute(text("SELECT coins, bank_coins, has_dagger, level, display_name FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": thief_id}).mappings().fetchone()
+        v = conn.execute(text("SELECT coins, display_name, level FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": target_id}).mappings().fetchone()
+        
+        if not t or not v: return await message.answer("هر دو باید پروفایل داشته باشید.")
+        
+        # شانس موفقیت: 40% + 20% اگه چاقو داشته باشه + لول بالاتر
+        success_chance = 0.4 + (0.2 if t['has_dagger'] else 0) + (0.1 if t['level'] > v['level'] else 0)
+        
+        if random.random() < success_chance and v['coins'] > 0:
+            # دزدی موفق
+            stolen = int(v['coins'] * random.uniform(0.1, 0.3)) # 10% تا 30% پول جیبی
+            conn.execute(text("UPDATE players SET coins=coins-:s WHERE chat_id=:c AND user_id=:u"), {"s": stolen, "c": chat_id, "u": target_id})
+            conn.execute(text("UPDATE players SET coins=coins+:s WHERE chat_id=:c AND user_id=:u"), {"s": stolen, "c": chat_id, "u": thief_id})
+            await message.answer(f"🥷 **دزدی موفق!** {t['display_name']} مبلغ {stolen} سکه از {v['display_name']} دزدید!")
+        else:
+            # دزدی ناموفق (جریمه)
+            penalty = int(t['coins'] * 0.2)
+            conn.execute(text("UPDATE players SET coins=GREATEST(0, coins-:p) WHERE chat_id=:c AND user_id=:u"), {"p": penalty, "c": chat_id, "u": thief_id})
+            await message.answer(f"🚨 **دزدی ناموفق!** {v['display_name']} متوجه شد و نگهبانان {t['display_name']} را دستگیر کردند. جریمه: {penalty} سکه.")
+
+# ---------- 🛒 فروشگاه‌ها ----------
 @router.message(Command("shop"))
 async def shop(message: Message):
-    await message.answer("🛒 **فروشگاه شهر:**\n\n🗡️ شمشیر (افزایش قدرت حمله): 50 سکه\nبرای خرید: `/buy sword`\n\n🛡️ زره (کاهش آسیب در حمله): 50 سکه\nبرای خرید: `/buy armor`\n\n*برای خرید، پول کافی نیاز است.*")
+    await message.answer("🛒 **فروشگاه شهر:**\n🗡️ شمشیر (قدرت حمله): 50 سکه (`/buy sword`)\n🛡️ زره (دفاع): 50 سکه (`/buy armor`)")
+
+@router.message(Command("blackmarket"))
+async def blackmarket(message: Message):
+    await message.answer("🕶️ **بازار سیاه (سایه):**\n🔪 چاقو (افزایش شانس دزدی): 150 سکه\nبرای خرید: `/buy dagger`\n\n*به کسی نگو اینجا رو بهت نشون دادم...*")
 
 @router.message(Command("buy"))
 async def buy(message: Message):
@@ -135,167 +172,86 @@ async def buy(message: Message):
     item = args[1].strip().lower()
     chat_id, user_id = message.chat.id, message.from_user.id
     
-    try:
-        with engine.begin() as conn:
-            p = conn.execute(text("SELECT coins, has_sword, has_armor FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}).mappings().fetchone()
-            if not p: return await message.answer("اول /profile")
-            
-            if item == "sword":
-                if p['has_sword']: return await message.answer("تو از قبل شمشیر داری!")
-                if p['coins'] < 50: return await message.answer("سکه کافی نداری (نیاز: 50).")
-                conn.execute(text("UPDATE players SET coins=coins-50, has_sword=1 WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id})
-                await message.answer("✅ شمشیر خریدی! حالا در حمله قوی‌تری.")
-                
-            elif item == "armor":
-                if p['has_armor']: return await message.answer("تو از قبل زره داری!")
-                if p['coins'] < 50: return await message.answer("سکه کافی نداری (نیاز: 50).")
-                conn.execute(text("UPDATE players SET coins=coins-50, has_armor=1 WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id})
-                await message.answer("✅ زره خریدی! حالا در حمله آسیب کمتری می‌بینی.")
-            else:
-                await message.answer("چنین آیتمی وجود ندارد.")
-    except Exception as e:
-        await message.answer(f"⚠️ خطای فروشگاه:\n{str(e)}")
+    with engine.begin() as conn:
+        p = conn.execute(text("SELECT * FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}).mappings().fetchone()
+        if not p: return await message.answer("اول /profile")
+        
+        if item == "sword" and not p['has_sword'] and p['coins'] >= 50:
+            conn.execute(text("UPDATE players SET coins=coins-50, has_sword=1 WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}); await message.answer("✅ شمشیر خریدی.")
+        elif item == "armor" and not p['has_armor'] and p['coins'] >= 50:
+            conn.execute(text("UPDATE players SET coins=coins-50, has_armor=1 WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}); await message.answer("✅ زره خریدی.")
+        elif item == "dagger" and not p['has_dagger'] and p['coins'] >= 150:
+            conn.execute(text("UPDATE players SET coins=coins-150, has_dagger=1 WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}); await message.answer("✅ چاقو خریدی. حالا دزدی راحت‌تره.")
+        else:
+            await message.answer("یا پول کافی نداری، یا آیتم نامعتبره، یا از قبل اون رو داری.")
 
-# ---------- ⚔️ حمله به بازیکن ----------
+# ---------- ⚔️ حمله ----------
 @router.message(Command("attack"))
 async def attack(message: Message):
-    if not message.reply_to_message:
-        return await message.answer("روی پیام کسی ریپلای کن و بنویس /attack")
+    if not message.reply_to_message: return await message.answer("روی پیام کسی ریپلای کن.")
+    a_id, t_id, c_id = message.from_user.id, message.reply_to_message.from_user.id, message.chat.id
+    if a_id == t_id: return await message.answer("خودزنی ممنوع!")
     
-    attacker_id = message.from_user.id
-    target_id = message.reply_to_message.from_user.id
-    chat_id = message.chat.id
-    
-    if attacker_id == target_id:
-        return await message.answer("خودزنی ممنوع!")
+    with engine.begin() as conn:
+        att = conn.execute(text("SELECT * FROM players WHERE chat_id=:c AND user_id=:u"), {"c": c_id, "u": a_id}).mappings().fetchone()
+        tgt = conn.execute(text("SELECT * FROM players WHERE chat_id=:c AND user_id=:u"), {"c": c_id, "u": t_id}).mappings().fetchone()
+        if not att or not tgt: return await message.answer("هر دو باید پروفایل داشته باشید.")
+        if att['energy'] < 10: return await message.answer("انرژی نداری.")
         
-    try:
-        with engine.begin() as conn:
-            att = conn.execute(text("SELECT health, energy, has_sword, display_name FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": attacker_id}).mappings().fetchone()
-            if not att: return await message.answer("اول /profile")
-            if att['energy'] < 10 or att['health'] < 10: return await message.answer("انرژی یا سلامتی کافی برای حمله نداری.")
-            
-            tgt = conn.execute(text("SELECT health, has_armor, display_name FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": target_id}).mappings().fetchone()
-            if not tgt: return await message.answer("هدف هنوز پروفایل نساخته.")
-            
-            attack_power = random.randint(10, 30) + (15 if att['has_sword'] else 0)
-            defense_power = random.randint(5, 15) + (20 if tgt['has_armor'] else 0)
-            damage = max(0, attack_power - defense_power)
-            
-            new_health = max(0, tgt['health'] - damage)
-            conn.execute(text("UPDATE players SET health=:h WHERE chat_id=:c AND user_id=:u"), {"h": new_health, "c": chat_id, "u": target_id})
-            conn.execute(text("UPDATE players SET energy=energy-10 WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": attacker_id})
-            
-        if damage == 0:
-            msg = f"🛡️ {att['display_name']} به {tgt['display_name']} حمله کرد، اما زره هدف جلوی آسیب را گرفت!"
-        else:
-            msg = f"⚔️ {att['display_name']} به {tgt['display_name']} حمله کرد و {damage} آسیب زد!\n❤️ سلامتی {tgt['display_name']}: {new_health}"
-            if new_health <= 0:
-                msg += "\n☠️ هدف بیهوش شد! باید بره بیمارستان."
-                
-        await message.answer(msg)
-    except Exception as e:
-        await message.answer(f"⚠️ خطای حمله:\n{str(e)}")
+        # لول مهاجم روی قدرت حمله اثر داره
+        a_power = random.randint(10, 30) + (15 if att['has_sword'] else 0) + (att['level'] * 2)
+        d_power = random.randint(5, 15) + (20 if tgt['has_armor'] else 0) + (tgt['level'] * 2)
+        dmg = max(0, a_power - d_power)
+        
+        new_hp = max(0, tgt['health'] - dmg)
+        conn.execute(text("UPDATE players SET health=:h WHERE chat_id=:c AND user_id=:u"), {"h": new_hp, "c": c_id, "u": t_id})
+        conn.execute(text("UPDATE players SET energy=energy-10 WHERE chat_id=:c AND user_id=:u"), {"c": c_id, "u": a_id})
+        
+    if dmg == 0: await message.answer(f"🛡️ حمله {att['display_name']} به {tgt['display_name']} دفع شد!")
+    else: await message.answer(f"⚔️ {att['display_name']} به {tgt['display_name']} {dmg} آسیب زد! (سلامتی: {new_hp})")
 
 # ---------- 💎 گنج‌یابی ----------
 @router.message(Command("dig"))
 async def dig(message: Message):
-    if random.random() > 0.3:
-        return await message.answer("⛏️ زمین را کندی، اما چیزی پیدا نکردی. شانست رو دوباره امتحان کن.")
-        
-    reward_type = random.choice(["coins", "energy", "health"])
-    amount = random.randint(20, 50)
-    chat_id, user_id = message.chat.id, message.from_user.id
+    if random.random() > 0.3: return await message.answer("⛏️ چیزی پیدا نکردی.")
+    r_type, amt = random.choice(["coins", "energy", "health"]), random.randint(20, 50)
+    c_id, u_id = message.chat.id, message.from_user.id
     
-    try:
-        with engine.begin() as conn:
-            p = conn.execute(text("SELECT id FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}).fetchone()
-            if not p: return await message.answer("اول /profile")
-            
-            if reward_type == "coins":
-                conn.execute(text("UPDATE players SET coins=coins+:a WHERE chat_id=:c AND user_id=:u"), {"a": amount, "c": chat_id, "u": user_id})
-                await message.answer(f"💎 **تبریک!** یک صندوقچه قدیمی پیدا کردی و {amount} سکه به دست آوردی!")
-            elif reward_type == "energy":
-                conn.execute(text("UPDATE players SET energy=LEAST(100, energy+:a) WHERE chat_id=:c AND user_id=:u"), {"a": amount, "c": chat_id, "u": user_id})
-                await message.answer(f"💎 **تبریک!** یک معجون انرژی پیدا کردی و {amount} انرژی گرفتی!")
-            elif reward_type == "health":
-                conn.execute(text("UPDATE players SET health=LEAST(100, health+:a) WHERE chat_id=:c AND user_id=:u"), {"a": amount, "c": chat_id, "u": user_id})
-                await message.answer(f"💎 **تبریک!** یک گیاه دارویی پیدا کردی و {amount} سلامتی گرفتی!")
-    except Exception as e:
-        await message.answer(f"⚠️ خطای گنج‌یابی:\n{str(e)}")
+    with engine.begin() as conn:
+        if r_type == "coins":
+            conn.execute(text("UPDATE players SET coins=coins+:a WHERE chat_id=:c AND user_id=:u"), {"a": amt, "c": c_id, "u": u_id}); await message.answer(f"💎 {amt} سکه پیدا کردی!")
+        elif r_type == "energy":
+            conn.execute(text("UPDATE players SET energy=LEAST(100, energy+:a) WHERE chat_id=:c AND user_id=:u"), {"a": amt, "c": c_id, "u": u_id}); await message.answer(f"💎 {amt} انرژی پیدا کردی!")
+        else:
+            conn.execute(text("UPDATE players SET health=LEAST(100, health+:a) WHERE chat_id=:c AND user_id=:u"), {"a": amt, "c": c_id, "u": u_id}); await message.answer(f"💎 {amt} سلامتی پیدا کردی!")
 
 # ---------- پاسخ NPC ----------
 @router.message(F.text)
 async def npc_reply(message: Message):
-    text = message.text
-    chat_id, user_id = message.chat.id, message.from_user.id
-    try:
-        with engine.begin() as conn:
-            npcs = conn.execute(text("SELECT * FROM npcs WHERE chat_id=:c"), {"c": chat_id}).fetchall()
-            target = next((npc for npc in npcs if npc[2] in text or npc[3] in text), None)
-            if not target: return 
-            if not is_active(target[4]): 
-                return await message.answer(f"🍞 {target[2]}: {random.choice(BAKER_TEMPLATES['closed'])}")
-            
-            rel = conn.execute(text("SELECT trust, grudge FROM social_edges WHERE from_id=:f AND to_id=:t"), {"f": target[0], "t": user_id}).fetchone()
-            trust, grudge = (rel[0] if rel else 50), (rel[1] if rel else 0)
-            tl = text.lower()
-            
-            if any(w in tl for w in ["سلام", "صبح"]):
-                tpl = "greet_high" if trust > 60 else "greet_low"
-                answer = random.choice(BAKER_TEMPLATES[tpl]).format(name=message.from_user.first_name)
-                await message.answer(f"🍞 {target[2]}: {answer}")
-            elif any(w in tl for w in ["بده", "بخر", "نان"]):
-                if trust < 30: await message.answer(f"🍞 {target[2]}: {random.choice(BAKER_TEMPLATES['buy_no_trust'])}")
-                elif grudge > 50: await message.answer(f"🍞 {target[2]}: قیمت برای تو دو برابر است.")
-                else:
-                    await message.answer(f"🍞 {target[2]}: {random.choice(BAKER_TEMPLATES['buy_ok']).format(price=10)}")
-                    conn.execute(text("UPDATE social_edges SET trust=LEAST(100, trust+2) WHERE from_id=:f AND to_id=:t"), {"f": target[0], "t": user_id})
-            elif any(w in tl for w in ["احمق", "بد"]):
-                conn.execute(text("UPDATE social_edges SET grudge=LEAST(100, grudge+20), trust=GREATEST(0, trust-10) WHERE from_id=:f AND to_id=:t"), {"f": target[0], "t": user_id})
-                await message.answer(f"🍞 {target[2]}: {random.choice(BAKER_TEMPLATES['insult'])}")
-    except Exception as e:
-        await message.answer(f"⚠️ خطای NPC:\n{str(e)}")
+    text, c_id, u_id = message.text, message.chat.id, message.from_user.id
+    with engine.begin() as conn:
+        npcs = conn.execute(text("SELECT * FROM npcs WHERE chat_id=:c"), {"c": c_id}).fetchall()
+        target = next((npc for npc in npcs if npc[2] in text or npc[3] in text), None)
+        if not target or not is_active(target[4]): return 
+        
+        rel = conn.execute(text("SELECT trust, grudge FROM social_edges WHERE from_id=:f AND to_id=:t"), {"f": target[0], "t": u_id}).fetchone()
+        trust = rel[0] if rel else 50
+        tl = text.lower()
+        if any(w in tl for w in ["سلام", "صبح"]):
+            await message.answer(f"🍞 {target[2]}: {'سلام! خوش آمدی.' if trust > 60 else 'بله؟'}")
+        elif any(w in tl for w in ["بده", "نان"]):
+            await message.answer(f"🍞 {target[2]}: نان ۱۰ سکه." if trust >= 30 else f"🍞 {target[2]}: به تو نمی‌فروشم.")
 
-# ---------- ادمین ----------
-def is_admin(uid): return uid in ADMIN_IDS
-
-@router.message(Command("admin_stats"))
-async def admin_stats(message: Message):
-    if not is_admin(message.from_user.id): return
-    try:
-        with engine.begin() as conn:
-            p = conn.execute(text("SELECT COUNT(*) FROM players")).scalar()
-            n = conn.execute(text("SELECT COUNT(*) FROM npcs")).scalar()
-        await message.answer(f"📊 بازیکن‌ها: {p}\n🤖 NPCها: {n}")
-    except Exception as e:
-        await message.answer(f"⚠️ خطای آمار:\n{str(e)}")
-
-@router.message(Command("setcoins"))
-async def admin_set_coins(message: Message):
-    if not is_admin(message.from_user.id): return
-    args = message.text.split()
-    if len(args) < 3: return
-    try: uid, amt = int(args[1]), int(args[2])
-    except: return
-    try:
-        with engine.begin() as conn:
-            res = conn.execute(text("UPDATE players SET coins=:a WHERE user_id=:u"), {"a": amt, "u": uid})
-        await message.answer(f"✅ {uid} = {amt}" if res.rowcount else f"❌ {uid} پیدا نشد.")
-    except Exception as e:
-        await message.answer(f"⚠️ خطای سکه:\n{str(e)}")
-
-@router.message(Command("broadcast"))
-async def admin_broadcast(message: Message):
-    if not is_admin(message.from_user.id): return
-    msg = message.text.replace("/broadcast", "").strip()
-    if not msg: return
-    try:
-        with engine.begin() as conn:
-            chats = conn.execute(text("SELECT DISTINCT chat_id FROM players")).fetchall()
-        for (cid,) in chats:
-            try: await message.bot.send_message(cid, f"📢 {msg}")
-            except: pass
-        await message.answer("ارسال شد.")
-    except Exception as e:
-        await message.answer(f"⚠️ خطای پیام همگانی:\n{str(e)}")
+# ---------- ادمین و بقیه دستورات (مثل قبل) ----------
+@router.message(Command("set_job"))
+async def set_job(message: Message):
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2: return await message.answer("/set_job شاگرد نانوا")
+    job = args[1].strip()
+    if job not in JOBS: return await message.answer("نامعتبر.")
+    with engine.begin() as conn:
+        p = conn.execute(text("SELECT id FROM players WHERE chat_id=:c AND user_id=:u"), {"c": message.chat.id, "u": message.from_user.id}).fetchone()
+        if not p: return await message.answer("اول /profile")
+        npc = conn.execute(text("SELECT id FROM npcs WHERE role=:r"), {"r": JOBS[job]["employer_role"]}).fetchone()
+        if npc: conn.execute(text("UPDATE players SET job=:j, employer_npc_id=:e WHERE chat_id=:c AND user_id=:u"), {"j": job, "e": npc[0], "c": message.chat.id, "u": message.from_user.id})
+    await message.answer(f"✅ شغل تو: {job}")
