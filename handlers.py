@@ -237,7 +237,7 @@ async def buy_dagger(call: CallbackQuery):
         conn.execute(text("UPDATE players SET coins=coins-150, has_dagger=1 WHERE user_id=:u"), {"u": call.from_user.id})
     await call.answer("✅ چاقو خریدی!", show_alert=True)
 
-# ---------- دکمه‌های کار، استراحت، گنج و خرید جوجه ----------
+# ---------- توابع کار، استراحت، گنج، خرید جوجه ----------
 async def process_work(user_id, chat_id, event_obj):
     with engine.begin() as conn:
         p = conn.execute(text("SELECT * FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}).mappings().fetchone()
@@ -324,7 +324,7 @@ async def cb_dig(call: CallbackQuery):
     if call.from_user.id != int(call.data.split("_")[1]): return await call.answer("❌ پنل شخصی است!", show_alert=True)
     await process_dig(call.from_user.id, call.message.chat.id, call)
 
-# ---------- ادمین، حمله، دزدی و NPC ----------
+# ---------- ادمین ----------
 @router.callback_query(F.data.startswith("admin_"))
 async def cb_admin(call: CallbackQuery):
     if call.from_user.id not in ADMIN_IDS: return await call.answer("❌ تو ادمین نیستی!", show_alert=True)
@@ -335,12 +335,16 @@ async def cb_admin(call: CallbackQuery):
             npcs = conn.execute(text("SELECT COUNT(*) FROM npcs")).scalar()
             chickens = conn.execute(text("SELECT COUNT(*) FROM players WHERE chicken_level > 0")).scalar()
         await call.message.edit_text(f"📊 **آمار شهر:**\n👤 بازیکن‌ها: {players}\n🤖 NPCها: {npcs}\n🐥 جوجه‌ها: {chickens}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ بازگشت", callback_data="admin_back")]]))
+    
     elif call.data == "admin_coins":
         await call.message.edit_text("💰 برای دادن دونه تایپ کن:\n`/setcoins [آیدی] [تعداد]`", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ بازگشت", callback_data="admin_back")]]))
+        
     elif call.data == "admin_level":
         await call.message.edit_text("🆙 برای دادن لول تایپ کن:\n`/addlevel [آیدی] [تعداد]`", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ بازگشت", callback_data="admin_back")]]))
+        
     elif call.data == "admin_broadcast":
         await call.message.edit_text("📢 برای پیام همگانی تایپ کن:\n`/broadcast [متن]`", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ بازگشت", callback_data="admin_back")]]))
+        
     elif call.data == "admin_back":
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📊 آمار شهر", callback_data="admin_stats")],
@@ -349,58 +353,6 @@ async def cb_admin(call: CallbackQuery):
             [InlineKeyboardButton(text="📢 پیام همگانی", callback_data="admin_broadcast")]
         ])
         await call.message.edit_text("👑 **پنل ادمین (خدای شهر)**\n➖➖➖➖➖➖➖➖➖➖\nیکی از گزینه‌ها رو انتخاب کن:", reply_markup=keyboard)
-
-@router.message(F.text.lower() == "جوجو حمله")
-async def text_attack(message: Message):
-    if not message.reply_to_message: return await message.answer("روی پیام کسی ریپلای کن و بنویس «جوجو حمله»")
-    a_id, t_id, c_id = message.from_user.id, message.reply_to_message.from_user.id, message.chat.id
-    if a_id == t_id: return await message.answer("خودزنی ممنوع!")
-    with engine.begin() as conn:
-        att = conn.execute(text("SELECT * FROM players WHERE chat_id=:c AND user_id=:u"), {"c": c_id, "u": a_id}).mappings().fetchone()
-        tgt = conn.execute(text("SELECT * FROM players WHERE chat_id=:c AND user_id=:u"), {"c": c_id, "u": t_id}).mappings().fetchone()
-        if not att or not tgt: return await message.answer("هر دو باید پروفایل داشته باشید.")
-        if att['energy'] < 10: return await message.answer("انرژی نداری.")
-        a_power = random.randint(10, 30) + (15 if att['has_sword'] else 0) + (att['level'] * 2)
-        d_power = random.randint(5, 15) + (20 if tgt['has_armor'] else 0) + (tgt['level'] * 2)
-        dmg = max(0, a_power - d_power)
-        new_hp = max(0, tgt['health'] - dmg)
-        conn.execute(text("UPDATE players SET health=:h WHERE chat_id=:c AND user_id=:u"), {"h": new_hp, "c": c_id, "u": t_id})
-        conn.execute(text("UPDATE players SET energy=energy-10 WHERE chat_id=:c AND user_id=:u"), {"c": c_id, "u": a_id})
-    if dmg == 0: await message.answer(f"🛡️ دفاع موفق!")
-    else: await message.answer(f"⚔️ {att['display_name']} به {tgt['display_name']} {dmg} آسیب زد!")
-
-@router.message(F.text.lower() == "جوجو دزدی")
-async def text_steal(message: Message):
-    if not message.reply_to_message: return await message.answer("روی پیام کسی ریپلای کن و بنویس «جوجو دزدی»")
-    thief_id, target_id, chat_id = message.from_user.id, message.reply_to_message.from_user.id, message.chat.id
-    if thief_id == target_id: return await message.answer("خودزنی؟!")
-    with engine.begin() as conn:
-        t = conn.execute(text("SELECT coins, has_dagger, level, display_name FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": thief_id}).mappings().fetchone()
-        v = conn.execute(text("SELECT coins, display_name, level FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": target_id}).mappings().fetchone()
-        if not t or not v: return await message.answer("هر دو باید پروفایل داشته باشید.")
-        success_chance = 0.4 + (0.2 if t['has_dagger'] else 0) + (0.1 if t['level'] > v['level'] else 0)
-        if random.random() < success_chance and v['coins'] > 0:
-            stolen = int(v['coins'] * random.uniform(0.1, 0.3))
-            conn.execute(text("UPDATE players SET coins=coins-:s WHERE chat_id=:c AND user_id=:u"), {"s": stolen, "c": chat_id, "u": target_id})
-            conn.execute(text("UPDATE players SET coins=coins+:s WHERE chat_id=:c AND user_id=:u"), {"s": stolen, "c": chat_id, "u": thief_id})
-            await message.answer(f"🥷 دزدی موفق! {stolen} دونه دزدیدی.")
-        else:
-            penalty = int(t['coins'] * 0.2)
-            conn.execute(text("UPDATE players SET coins=GREATEST(0, coins-:p) WHERE chat_id=:c AND user_id=:u"), {"p": penalty, "c": chat_id, "u": thief_id})
-            await message.answer(f"🚨 دزدی ناموفق! جریمه: {penalty} دونه.")
-
-@router.message(F.text)
-async def npc_reply(message: Message):
-    text, c_id, u_id = message.text, message.chat.id, message.from_user.id
-    with engine.begin() as conn:
-        npcs = conn.execute(text("SELECT * FROM npcs WHERE chat_id=:c"), {"c": c_id}).fetchall()
-        target = next((npc for npc in npcs if npc[2] in text or npc[3] in text), None)
-        if not target or not is_active(target[4]): return 
-        rel = conn.execute(text("SELECT trust, grudge FROM social_edges WHERE from_id=:f AND to_id=:t"), {"f": target[0], "t": u_id}).fetchone()
-        trust = rel[0] if rel else 50
-        tl = text.lower()
-        if any(w in tl for w in ["سلام", "صبح"]): await message.answer(f"🍞 {target[2]}: {'سلام! خوش آمدی.' if trust > 60 else 'بله؟'}")
-        elif any(w in tl for w in ["بده", "نان"]): await message.answer(f"🍞 {target[2]}: نان ۱۰ دونه." if trust >= 30 else f"🍞 {target[2]}: به تو نمی‌فروشم.")
 
 @router.message(Command("setcoins"))
 async def admin_set_coins(message: Message):
@@ -435,3 +387,31 @@ async def admin_broadcast(message: Message):
         try: await message.bot.send_message(cid, f"📢 **اطلاعیه ادمین:**\n{msg}")
         except: pass
     await message.answer("✅ ارسال شد.")
+
+# ---------- حمله، دزدی و NPC ----------
+@router.message(F.text.lower() == "جوجو حمله")
+async def text_attack(message: Message):
+    if not message.reply_to_message: return await message.answer("روی پیام کسی ریپلای کن و بنویس «جوجو حمله»")
+    a_id, t_id, c_id = message.from_user.id, message.reply_to_message.from_user.id, message.chat.id
+    if a_id == t_id: return await message.answer("خودزنی ممنوع!")
+    with engine.begin() as conn:
+        att = conn.execute(text("SELECT * FROM players WHERE chat_id=:c AND user_id=:u"), {"c": c_id, "u": a_id}).mappings().fetchone()
+        tgt = conn.execute(text("SELECT * FROM players WHERE chat_id=:c AND user_id=:u"), {"c": c_id, "u": t_id}).mappings().fetchone()
+        if not att or not tgt: return await message.answer("هر دو باید پروفایل داشته باشید.")
+        if att['energy'] < 10: return await message.answer("انرژی نداری.")
+        a_power = random.randint(10, 30) + (15 if att['has_sword'] else 0) + (att['level'] * 2)
+        d_power = random.randint(5, 15) + (20 if tgt['has_armor'] else 0) + (tgt['level'] * 2)
+        dmg = max(0, a_power - d_power)
+        new_hp = max(0, tgt['health'] - dmg)
+        conn.execute(text("UPDATE players SET health=:h WHERE chat_id=:c AND user_id=:u"), {"h": new_hp, "c": c_id, "u": t_id})
+        conn.execute(text("UPDATE players SET energy=energy-10 WHERE chat_id=:c AND user_id=:u"), {"c": c_id, "u": a_id})
+    if dmg == 0: await message.answer(f"🛡️ دفاع موفق!")
+    else: await message.answer(f"⚔️ {att['display_name']} به {tgt['display_name']} {dmg} آسیب زد!")
+
+@router.message(F.text.lower() == "جوجو دزدی")
+async def text_steal(message: Message):
+    if not message.reply_to_message: return await message.answer("روی پیام کسی ریپلای کن و بنویس «جوجو دزدی»")
+    thief_id, target_id, chat_id = message.from_user.id, message.reply_to_message.from_user.id, message.chat.id
+    if thief_id == target_id: return await message.answer("خودزنی؟!")
+    with engine.begin() as conn:
+        t = conn.execute(text("SELECT coins, has_dagger, level, display_name FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": thief_id}).mappings().fetchone()
