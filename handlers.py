@@ -23,19 +23,14 @@ def check_level_up(level, xp):
     return level, xp
 
 def get_main_keyboard(user_id):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👤 پروفایل", callback_data=f"prof_{user_id}"), 
-         InlineKeyboardButton(text="💼 شغل‌ها", callback_data=f"jobs_{user_id}")],
-        [InlineKeyboardButton(text="🏦 بانک", callback_data=f"bank_{user_id}"), 
-         InlineKeyboardButton(text="🛒 فروشگاه", callback_data=f"shop_{user_id}")],
-        [InlineKeyboardButton(text="🕶️ بازار سیاه", callback_data=f"bm_{user_id}"), 
-         InlineKeyboardButton(text="💎 گنج‌یابی", callback_data=f"dig_{user_id}")],
-        [InlineKeyboardButton(text="⚒️ کار کردن", callback_data=f"work_{user_id}"), 
-         InlineKeyboardButton(text="😴 استراحت", callback_data=f"rest_{user_id}")],
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👤 پروفایل", callback_data=f"prof_{user_id}"), InlineKeyboardButton(text="💼 شغل‌ها", callback_data=f"jobs_{user_id}")],
+        [InlineKeyboardButton(text="🏦 بانک", callback_data=f"bank_{user_id}"), InlineKeyboardButton(text="🛒 فروشگاه", callback_data=f"shop_{user_id}")],
+        [InlineKeyboardButton(text="🕶️ بازار سیاه", callback_data=f"bm_{user_id}"), InlineKeyboardButton(text="💎 گنج‌یابی", callback_data=f"dig_{user_id}")],
+        [InlineKeyboardButton(text="⚒️ کار کردن", callback_data=f"work_{user_id}"), InlineKeyboardButton(text="😴 استراحت", callback_data=f"rest_{user_id}")],
         [InlineKeyboardButton(text="🐥 جوجه من", callback_data=f"chicken_{user_id}")],
-        [InlineKeyboardButton(text="📖 راهنما و قوانین", callback_data=f"help_{user_id}")]
+        [InlineKeyboardButton(text="📖 راهنما", callback_data=f"help_{user_id}")]
     ])
-    return keyboard
 
 @router.message(Command("start"))
 async def start_menu(message: Message):
@@ -46,6 +41,53 @@ async def start_menu(message: Message):
 async def open_main_menu(message: Message):
     await message.answer("🎮 **منوی اصلی بازی**\nیکی از گزینه‌های زیر را انتخاب کنید:", reply_markup=get_main_keyboard(message.from_user.id))
 
+@router.message(F.text.lower() == "جوجو پروفایل")
+async def text_profile(message: Message): await cb_profile_logic(message, message.from_user.id)
+
+@router.message(F.text.lower() == "جوجو بانک")
+async def text_bank(message: Message): await cb_bank_logic(message, message.from_user.id)
+
+@router.message(F.text.lower() == "جوجه من")
+async def text_chicken(message: Message): await cb_chicken_logic(message, message.from_user.id)
+
+@router.message(F.text.lower() == "جوجه ادمین")
+async def open_admin_panel(message: Message):
+    if message.from_user.id not in ADMIN_IDS: return await message.answer("❌ تو ادمین نیستی!")
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 آمار شهر", callback_data="admin_stats")],
+        [InlineKeyboardButton(text="💰 دادن دونه", callback_data="admin_coins")],
+        [InlineKeyboardButton(text="🆙 دادن لول", callback_data="admin_level")],
+        [InlineKeyboardButton(text="📢 پیام همگانی", callback_data="admin_broadcast")]
+    ])
+    await message.answer("👑 **پنل ادمین (خدای شهر)**\n➖➖➖➖➖➖➖➖➖➖\nیکی از گزینه‌ها رو انتخاب کن:", reply_markup=keyboard)
+
+@router.message(F.text.lower() == "جوجو شغل")
+async def text_jobs(message: Message):
+    job_buttons = []
+    for job in JOBS.keys():
+        job_buttons.append([InlineKeyboardButton(text=f"💼 {job}", callback_data=f"setjob_{job}_{message.from_user.id}")])
+    job_buttons.append([InlineKeyboardButton(text="↩️ بازگشت", callback_data=f"back_{message.from_user.id}")])
+    await message.answer("💼 **لیست شغل‌ها:**\nیکی را انتخاب کن:", reply_markup=InlineKeyboardMarkup(inline_keyboard=job_buttons))
+
+@router.message(F.text.lower() == "جوجو کار")
+async def text_work(message: Message): await process_work(message.from_user.id, message.chat.id, message)
+
+@router.message(F.text.lower() == "جوجو استراحت")
+async def text_rest(message: Message): await process_rest(message.from_user.id, message.chat.id, message)
+
+@router.message(F.text.lower() == "جوجو گنج")
+async def text_dig(message: Message): await process_dig(message.from_user.id, message.chat.id, message)
+
+@router.message(F.text.lower() == "خرید جوجه")
+async def buy_chicken_text(message: Message): await process_buy_chicken(message.from_user.id, message.chat.id, message)
+
+@router.message(F.text.lower().startswith("اسم "))
+async def change_chicken_name(message: Message):
+    new_name = message.text[4:].strip()
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE players SET chicken_name=:n WHERE chat_id=:c AND user_id=:u"), {"n": new_name, "c": message.chat.id, "u": message.from_user.id})
+    await message.answer(f"✅ اسم جوجه به {new_name} تغییر کرد!")
+
 # ---------- توابع لاجیک ----------
 async def cb_profile_logic(call_or_msg, user_id):
     with engine.begin() as conn:
@@ -55,7 +97,6 @@ async def cb_profile_logic(call_or_msg, user_id):
             name = call_or_msg.from_user.first_name
             conn.execute(text("INSERT INTO players (chat_id, user_id, display_name) VALUES (:c, :u, :n)"), {"c": chat_id, "u": user_id, "n": name})
             r = conn.execute(text("SELECT * FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}).mappings().fetchone()
-    
     text_msg = (
         f"👤 **{r['display_name']}**\n➖➖➖➖➖➖➖➖➖➖\n"
         f"⭐️ سطح: {r['level']} | ✨ XP: {r['xp']}/{r['level']*50}\n"
@@ -102,43 +143,6 @@ async def cb_chicken_logic(call_or_msg, user_id):
     ])
     if isinstance(call_or_msg, CallbackQuery): await call_or_msg.message.edit_text(text_msg, reply_markup=keyboard)
     else: await call_or_msg.answer(text_msg, reply_markup=keyboard)
-
-# ---------- دستورات متنی ----------
-@router.message(F.text.lower() == "جوجو پروفایل")
-async def text_profile(message: Message): await cb_profile_logic(message, message.from_user.id)
-
-@router.message(F.text.lower() == "جوجو بانک")
-async def text_bank(message: Message): await cb_bank_logic(message, message.from_user.id)
-
-@router.message(F.text.lower() == "جوجه من")
-async def text_chicken(message: Message): await cb_chicken_logic(message, message.from_user.id)
-
-@router.message(F.text.lower() == "جوجو شغل")
-async def text_jobs(message: Message):
-    job_buttons = []
-    for job in JOBS.keys():
-        job_buttons.append([InlineKeyboardButton(text=f"💼 {job}", callback_data=f"setjob_{job}_{message.from_user.id}")])
-    job_buttons.append([InlineKeyboardButton(text="↩️ بازگشت", callback_data=f"back_{message.from_user.id}")])
-    await message.answer("💼 **لیست شغل‌ها:**\nیکی را انتخاب کن:", reply_markup=InlineKeyboardMarkup(inline_keyboard=job_buttons))
-
-@router.message(F.text.lower() == "جوجو کار")
-async def text_work(message: Message): await process_work(message.from_user.id, message.chat.id, message)
-
-@router.message(F.text.lower() == "جوجو استراحت")
-async def text_rest(message: Message): await process_rest(message.from_user.id, message.chat.id, message)
-
-@router.message(F.text.lower() == "جوجو گنج")
-async def text_dig(message: Message): await process_dig(message.from_user.id, message.chat.id, message)
-
-@router.message(F.text.lower() == "خرید جوجه")
-async def buy_chicken_text(message: Message): await process_buy_chicken(message.from_user.id, message.chat.id, message)
-
-@router.message(F.text.lower().startswith("اسم "))
-async def change_chicken_name(message: Message):
-    new_name = message.text[4:].strip()
-    with engine.begin() as conn:
-        conn.execute(text("UPDATE players SET chicken_name=:n WHERE chat_id=:c AND user_id=:u"), {"n": new_name, "c": message.chat.id, "u": message.from_user.id})
-    await message.answer(f"✅ اسم جوجه به {new_name} تغییر کرد!")
 @router.callback_query(F.data.startswith("prof_"))
 async def cb_profile(call: CallbackQuery):
     if call.from_user.id != int(call.data.split("_")[1]): return await call.answer("❌ پنل شخصی است!", show_alert=True)
@@ -156,9 +160,8 @@ async def cb_chicken(call: CallbackQuery):
 
 @router.callback_query(F.data.startswith("buy_chicken_"))
 async def cb_buy_chicken(call: CallbackQuery):
-    user_id = int(call.data.split("_")[2])
-    if call.from_user.id != user_id: return await call.answer("❌ پنل شخصی است!", show_alert=True)
-    await process_buy_chicken(user_id, call.message.chat.id, call)
+    if call.from_user.id != int(call.data.split("_")[2]): return await call.answer("❌ پنل شخصی است!", show_alert=True)
+    await process_buy_chicken(call.from_user.id, call.message.chat.id, call)
 
 @router.callback_query(F.data.startswith("collect_"))
 async def cb_collect(call: CallbackQuery):
@@ -216,7 +219,25 @@ async def buy_meat(call: CallbackQuery):
         conn.execute(text("UPDATE players SET coins=coins-30, health=LEAST(100, health+30) WHERE user_id=:u"), {"u": call.from_user.id})
     await call.answer("✅ گوشت خوردی و ۳۰ سلامتی گرفتی!", show_alert=True)
 
-# ---------- توابع کار، استراحت، گنج، خرید جوجه ----------
+@router.callback_query(F.data.startswith("buy_sword_"))
+async def buy_sword(call: CallbackQuery):
+    with engine.begin() as conn:
+        p = conn.execute(text("SELECT coins, has_sword FROM players WHERE user_id=:u"), {"u": call.from_user.id}).mappings().fetchone()
+        if p['has_sword']: return await call.answer("تو از قبل شمشیر داری!", show_alert=True)
+        if p['coins'] < 50: return await call.answer("دونه کافی نداری!", show_alert=True)
+        conn.execute(text("UPDATE players SET coins=coins-50, has_sword=1 WHERE user_id=:u"), {"u": call.from_user.id})
+    await call.answer("✅ شمشیر خریدی!", show_alert=True)
+
+@router.callback_query(F.data.startswith("buy_dagger_"))
+async def buy_dagger(call: CallbackQuery):
+    with engine.begin() as conn:
+        p = conn.execute(text("SELECT coins, has_dagger FROM players WHERE user_id=:u"), {"u": call.from_user.id}).mappings().fetchone()
+        if p['has_dagger']: return await call.answer("تو از قبل چاقو داری!", show_alert=True)
+        if p['coins'] < 150: return await call.answer("دونه کافی نداری!", show_alert=True)
+        conn.execute(text("UPDATE players SET coins=coins-150, has_dagger=1 WHERE user_id=:u"), {"u": call.from_user.id})
+    await call.answer("✅ چاقو خریدی!", show_alert=True)
+
+# ---------- دکمه‌های کار، استراحت، گنج و خرید جوجه ----------
 async def process_work(user_id, chat_id, event_obj):
     with engine.begin() as conn:
         p = conn.execute(text("SELECT * FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}).mappings().fetchone()
@@ -225,8 +246,7 @@ async def process_work(user_id, chat_id, event_obj):
         if p["energy"] < 20: return await event_obj.answer("⚡ انرژی نداری.")
         income = JOBS[p["job"]]["income"] + p["job_level"] * 2
         new_level, new_xp = check_level_up(p["level"], p["xp"] + 15)
-        conn.execute(text("UPDATE players SET coins=coins+:i, energy=energy-15, xp=:xp, level=:lvl, job_level=job_level+1 WHERE id=:p"), 
-                     {"i": income, "xp": new_xp, "lvl": new_level, "p": p["id"]})
+        conn.execute(text("UPDATE players SET coins=coins+:i, energy=energy-15, xp=:xp, level=:lvl, job_level=job_level+1 WHERE id=:p"), {"i": income, "xp": new_xp, "lvl": new_level, "p": p["id"]})
     if isinstance(event_obj, CallbackQuery): await event_obj.answer(f"✅ +{income} دونه گرفتی!", show_alert=True)
     else: await event_obj.answer(f"✅ +{income} دونه گرفتی!")
 
@@ -247,13 +267,13 @@ async def process_dig(user_id, chat_id, event_obj):
 async def process_buy_chicken(user_id, chat_id, event_obj):
     with engine.begin() as conn:
         p = conn.execute(text("SELECT level, chicken_level, coins FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": user_id}).mappings().fetchone()
-        if p['chicken_level'] > 0: return await event_obj.answer("تو از قبل جوجه داری!", show_alert=True)
-        if p['level'] < 3: return await event_obj.answer("❌ برای خرید جوجه باید لول ۳ باشی!", show_alert=True)
+        if not p: return await event_obj.answer("❌ اول /start رو بزن.")
+        if p['chicken_level'] > 0: return await event_obj.answer("🐥 تو از قبل یه جوجه داری! نمی‌تونی دوتا داشته باشی.", show_alert=True)
+        if p['level'] < 3: return await event_obj.answer(f"❌ برای خرید جوجه باید حداقل لول ۳ باشی! (لول فعلی تو: {p['level']})", show_alert=True)
         if p['coins'] < 100: return await event_obj.answer("❌ نیاز به ۱۰۰ دونه داری!", show_alert=True)
         conn.execute(text("UPDATE players SET coins=coins-100, chicken_level=1 WHERE user_id=:u"), {"u": user_id})
-    await event_obj.answer("🐣 تبریک! تو یک جوجه خریدی!", show_alert=True)
+    await event_obj.answer("🐣 تبریک! تو یک جوجه خریدی! حالا هر ۵ دقیقه برات دونه جمع می‌کنه.", show_alert=True)
 
-# ---------- دکمه‌های شغل، بازگشت و راهنما ----------
 @router.callback_query(F.data.startswith("setjob_"))
 async def cb_setjob(call: CallbackQuery):
     data = call.data.split("_")
@@ -284,7 +304,8 @@ async def cb_help(call: CallbackQuery):
         "🔹 `خرید جوجه`: (نیاز لول ۳)\n"
         "🔹 `اسم [اسم]`: تغییر اسم جوجه\n"
         "⚔️ `جوجو حمله`: (ریپلای) دعوا\n"
-        "🥷 `جوجو دزدی`: (ریپلای) دزدی"
+        "🥷 `جوجو دزدی`: (ریپلای) دزدی\n"
+        "👑 `جوجه ادمین`: پنل مدیریت (فقط ادمین)"
     )
     await call.message.edit_text(help_text, reply_markup=get_main_keyboard(call.from_user.id))
 
@@ -303,7 +324,32 @@ async def cb_dig(call: CallbackQuery):
     if call.from_user.id != int(call.data.split("_")[1]): return await call.answer("❌ پنل شخصی است!", show_alert=True)
     await process_dig(call.from_user.id, call.message.chat.id, call)
 
-# ---------- حمله، دزدی، NPC و ادمین ----------
+# ---------- ادمین، حمله، دزدی و NPC ----------
+@router.callback_query(F.data.startswith("admin_"))
+async def cb_admin(call: CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS: return await call.answer("❌ تو ادمین نیستی!", show_alert=True)
+    
+    if call.data == "admin_stats":
+        with engine.begin() as conn:
+            players = conn.execute(text("SELECT COUNT(*) FROM players")).scalar()
+            npcs = conn.execute(text("SELECT COUNT(*) FROM npcs")).scalar()
+            chickens = conn.execute(text("SELECT COUNT(*) FROM players WHERE chicken_level > 0")).scalar()
+        await call.message.edit_text(f"📊 **آمار شهر:**\n👤 بازیکن‌ها: {players}\n🤖 NPCها: {npcs}\n🐥 جوجه‌ها: {chickens}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ بازگشت", callback_data="admin_back")]]))
+    elif call.data == "admin_coins":
+        await call.message.edit_text("💰 برای دادن دونه تایپ کن:\n`/setcoins [آیدی] [تعداد]`", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ بازگشت", callback_data="admin_back")]]))
+    elif call.data == "admin_level":
+        await call.message.edit_text("🆙 برای دادن لول تایپ کن:\n`/addlevel [آیدی] [تعداد]`", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ بازگشت", callback_data="admin_back")]]))
+    elif call.data == "admin_broadcast":
+        await call.message.edit_text("📢 برای پیام همگانی تایپ کن:\n`/broadcast [متن]`", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ بازگشت", callback_data="admin_back")]]))
+    elif call.data == "admin_back":
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📊 آمار شهر", callback_data="admin_stats")],
+            [InlineKeyboardButton(text="💰 دادن دونه", callback_data="admin_coins")],
+            [InlineKeyboardButton(text="🆙 دادن لول", callback_data="admin_level")],
+            [InlineKeyboardButton(text="📢 پیام همگانی", callback_data="admin_broadcast")]
+        ])
+        await call.message.edit_text("👑 **پنل ادمین (خدای شهر)**\n➖➖➖➖➖➖➖➖➖➖\nیکی از گزینه‌ها رو انتخاب کن:", reply_markup=keyboard)
+
 @router.message(F.text.lower() == "جوجو حمله")
 async def text_attack(message: Message):
     if not message.reply_to_message: return await message.answer("روی پیام کسی ریپلای کن و بنویس «جوجو حمله»")
@@ -356,14 +402,36 @@ async def npc_reply(message: Message):
         if any(w in tl for w in ["سلام", "صبح"]): await message.answer(f"🍞 {target[2]}: {'سلام! خوش آمدی.' if trust > 60 else 'بله؟'}")
         elif any(w in tl for w in ["بده", "نان"]): await message.answer(f"🍞 {target[2]}: نان ۱۰ دونه." if trust >= 30 else f"🍞 {target[2]}: به تو نمی‌فروشم.")
 
-def is_admin(uid): return uid in ADMIN_IDS
+@router.message(Command("setcoins"))
+async def admin_set_coins(message: Message):
+    if message.from_user.id not in ADMIN_IDS: return
+    args = message.text.split()
+    if len(args) < 3: return await message.answer("استفاده: `/setcoins [آیدی] [تعداد]`")
+    try:
+        with engine.begin() as conn:
+            res = conn.execute(text("UPDATE players SET coins=:a WHERE user_id=:u"), {"a": int(args[2]), "u": int(args[1])})
+        await message.answer(f"✅ دونه‌های {args[1]} تنظیم شد." if res.rowcount else "❌ پیدا نشد.")
+    except: pass
+
 @router.message(Command("addlevel"))
 async def admin_add_level(message: Message):
-    if not is_admin(message.from_user.id): return
+    if message.from_user.id not in ADMIN_IDS: return
     args = message.text.split()
-    if len(args) < 3: return await message.answer("/addlevel [آیدی] [تعداد]")
+    if len(args) < 3: return await message.answer("استفاده: `/addlevel [آیدی] [تعداد]`")
     try:
         with engine.begin() as conn:
             res = conn.execute(text("UPDATE players SET level=level+:l WHERE user_id=:u"), {"l": int(args[2]), "u": int(args[1])})
-        await message.answer("✅ انجام شد." if res.rowcount else "❌ پیدا نشد.")
+        await message.answer(f"✅ لول {args[1]} افزایش یافت." if res.rowcount else "❌ پیدا نشد.")
     except: pass
+
+@router.message(Command("broadcast"))
+async def admin_broadcast(message: Message):
+    if message.from_user.id not in ADMIN_IDS: return
+    msg = message.text.replace("/broadcast", "").strip()
+    if not msg: return await message.answer("متن پیام رو بنویس.")
+    with engine.begin() as conn:
+        chats = conn.execute(text("SELECT DISTINCT chat_id FROM players")).fetchall()
+    for (cid,) in chats:
+        try: await message.bot.send_message(cid, f"📢 **اطلاعیه ادمین:**\n{msg}")
+        except: pass
+    await message.answer("✅ ارسال شد.")
