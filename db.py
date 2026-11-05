@@ -2,6 +2,7 @@ from sqlalchemy import create_engine, text
 from config import DATABASE_URL, BAKER_SCHEDULE
 import json
 
+# رشته اتصال به Supabase
 db_url = DATABASE_URL
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
@@ -14,12 +15,11 @@ engine = create_engine(db_url, pool_pre_ping=True, pool_size=3, max_overflow=2)
 
 def init_db():
     with engine.begin() as conn:
-        # پاک کردن جدول قدیمی اگر وجود داشت تا ستون‌های جدید اضافه شوند (فقط برای توسعه)
-        # conn.execute(text("DROP TABLE IF EXISTS players")) 
-        
+        # ۱. ساخت جدول بازیکن‌ها با تمام ستون‌های جدید
         conn.execute(text("""
         CREATE TABLE IF NOT EXISTS players (
-            id SERIAL PRIMARY KEY, chat_id BIGINT, user_id BIGINT, display_name TEXT,
+            id SERIAL PRIMARY KEY, 
+            chat_id BIGINT, user_id BIGINT, display_name TEXT,
             coins INTEGER DEFAULT 100, bank_coins INTEGER DEFAULT 0,
             level INTEGER DEFAULT 1, xp INTEGER DEFAULT 0,
             energy INTEGER DEFAULT 100, health INTEGER DEFAULT 100, 
@@ -28,20 +28,14 @@ def init_db():
             UNIQUE(chat_id, user_id)
         );"""))
         
-        # اگر ستون‌های جدید از قبل نبودن، اینجا اضافه میشن (برای دیتابیس‌های قدیمی)
-        try:
-            conn.execute(text("ALTER TABLE players ADD COLUMN bank_coins INTEGER DEFAULT 0"))
-            conn.execute(text("ALTER TABLE players ADD COLUMN level INTEGER DEFAULT 1"))
-            conn.execute(text("ALTER TABLE players ADD COLUMN xp INTEGER DEFAULT 0"))
-            conn.execute(text("ALTER TABLE players ADD COLUMN has_dagger INTEGER DEFAULT 0"))
-        except:
-            pass # اگر ستون‌ها از قبل وجود داشته باشن، ارور میده که نادیده می‌گیریم
-
+        # ۲. ساخت جدول NPCها
         conn.execute(text("""
         CREATE TABLE IF NOT EXISTS npcs (
             id SERIAL PRIMARY KEY, chat_id BIGINT, name TEXT, role TEXT,
             schedule TEXT, coins INTEGER DEFAULT 500
         );"""))
+        
+        # ۳. ساخت جدول روابط (اعتماد و کینه)
         conn.execute(text("""
         CREATE TABLE IF NOT EXISTS social_edges (
             id SERIAL PRIMARY KEY, from_id BIGINT, to_id BIGINT,
@@ -49,13 +43,13 @@ def init_db():
             last_interaction TIMESTAMP, UNIQUE(from_id, to_id)
         );"""))
         
-        # ساخت نانوا
+        # ۴. ساخت NPC نانوا (اگر وجود نداشته باشد)
         exists = conn.execute(text("SELECT id FROM npcs WHERE role='نانوا' LIMIT 1")).fetchone()
         if not exists:
             conn.execute(text("INSERT INTO npcs (name, role, schedule, coins) VALUES (:name, :role, :schedule, 500)"), 
                          {"name": "نانوا", "role": "نانوا", "schedule": json.dumps(BAKER_SCHEDULE, ensure_ascii=False)})
         
-        # ساخت کلاهبردار (بازار سیاه)
+        # ۵. ساخت NPC کلاهبردار (اگر وجود نداشته باشد)
         exists_thief = conn.execute(text("SELECT id FROM npcs WHERE role='کلاهبردار' LIMIT 1")).fetchone()
         if not exists_thief:
             conn.execute(text("INSERT INTO npcs (name, role, schedule, coins) VALUES (:name, :role, :schedule, 1000)"), 
