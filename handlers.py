@@ -383,4 +383,56 @@ async def cb_back(call: CallbackQuery):
 @router.callback_query(F.data.startswith("help_"))
 async def cb_help(call: CallbackQuery):
     if call.from_user.id != int(call.data.split("_")[1]): return await call.answer("❌ پنل شخصی است!", show_alert=True)
-    help_text = "📖 **راهنما**\n🔹 `جوجه ادمین`: پنل مدیریت\n🔹 `جوجه من`: پنل جوجه\n🔸 دکمه‌های شیشه‌
+    help_text = "📖 **راهنما**\n🔹 `جوجه ادمین`: پنل مدیریت\n🔹 `جوجه من`: پنل جوجه\n🔸 دکمه‌های شیشه‌ای برای کار، فروشگاه و... کار می‌کنن."
+    await call.message.edit_text(help_text, reply_markup=get_main_keyboard(call.from_user.id))
+
+# ---------- حمله و دزدی ----------
+@router.message(F.text.lower() == "جوجو حمله")
+async def text_attack(message: Message):
+    if not message.reply_to_message: return await message.answer("روی پیام کسی ریپلای کن.")
+    a_id, t_id, c_id = message.from_user.id, message.reply_to_message.from_user.id, message.chat.id
+    with engine.begin() as conn:
+        att = conn.execute(text("SELECT * FROM players WHERE chat_id=:c AND user_id=:u"), {"c": c_id, "u": a_id}).mappings().fetchone()
+        tgt = conn.execute(text("SELECT * FROM players WHERE chat_id=:c AND user_id=:u"), {"c": c_id, "u": t_id}).mappings().fetchone()
+        if not att or not tgt: return await message.answer("پروفایل نداری.")
+        if att['energy'] < 10: return await message.answer("انرژی نداری.")
+        a_power = random.randint(10, 30) + (15 if att['has_sword'] else 0) + (att['level'] * 2)
+        d_power = random.randint(5, 15) + (20 if tgt['has_armor'] else 0) + (tgt['level'] * 2)
+        dmg = max(0, a_power - d_power)
+        new_hp = max(0, tgt['health'] - dmg)
+        conn.execute(text("UPDATE players SET health=:h WHERE chat_id=:c AND user_id=:u"), {"h": new_hp, "c": c_id, "u": t_id})
+        conn.execute(text("UPDATE players SET energy=energy-10 WHERE chat_id=:c AND user_id=:u"), {"c": c_id, "u": a_id})
+    if dmg == 0: await message.answer(f"🛡️ دفاع موفق!")
+    else: await message.answer(f"⚔️ {att['display_name']} به {tgt['display_name']} {dmg} آسیب زد!")
+
+@router.message(F.text.lower() == "جوجو دزدی")
+async def text_steal(message: Message):
+    if not message.reply_to_message: return await message.answer("روی پیام کسی ریپلای کن.")
+    thief_id, target_id, chat_id = message.from_user.id, message.reply_to_message.from_user.id, message.chat.id
+    with engine.begin() as conn:
+        t = conn.execute(text("SELECT coins, has_dagger, level, display_name FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": thief_id}).mappings().fetchone()
+        v = conn.execute(text("SELECT coins, display_name, level FROM players WHERE chat_id=:c AND user_id=:u"), {"c": chat_id, "u": target_id}).mappings().fetchone()
+        if not t or not v: return await message.answer("پروفایل نداری.")
+        success = 0.4 + (0.2 if t['has_dagger'] else 0)
+        if random.random() < success and v['coins'] > 0:
+            stolen = int(v['coins'] * random.uniform(0.1, 0.3))
+            conn.execute(text("UPDATE players SET coins=coins-:s WHERE chat_id=:c AND user_id=:u"), {"s": stolen, "c": chat_id, "u": target_id})
+            conn.execute(text("UPDATE players SET coins=coins+:s WHERE chat_id=:c AND user_id=:u"), {"s": stolen, "c": chat_id, "u": thief_id})
+            await message.answer(f"🥷 دزدی موفق! {stolen} دونه دزدیدی.")
+        else:
+            penalty = int(t['coins'] * 0.2)
+            conn.execute(text("UPDATE players SET coins=GREATEST(0, coins-:p) WHERE chat_id=:c AND user_id=:u"), {"p": penalty, "c": chat_id, "u": thief_id})
+            await message.answer(f"🚨 دزدی ناموفق! جریمه: {penalty} دونه.")
+
+@router.message(F.text)
+async def npc_reply(message: Message):
+    text, c_id, u_id = message.text, message.chat.id, message.from_user.id
+    with engine.begin() as conn:
+        npcs = conn.execute(text("SELECT * FROM npcs WHERE chat_id=:c"), {"c": c_id}).fetchall()
+        target = next((npc for npc in npcs if npc[2] in text or npc[3] in text), None)
+        if not target or not is_active(target[4]): return 
+        rel = conn.execute(text("SELECT trust, grudge FROM social_edges WHERE from_id=:f AND to_id=:t"), {"f": target[0], "t": u_id}).fetchone()
+        trust = rel[0] if rel else 50
+        tl = text.lower()
+        if any(w in tl for w in ["سلام", "صبح"]): await message.answer(f"🍞 {target[2]}: {'سلام! خوش آمدی.' if trust > 60 else 'بله؟'}")
+        elif any(w in tl for w in ["بده", "نان"]): await message.answer(f"🍞 {target[2]}: نان ۱۰ دونه." if trust >= 30 else f"🍞 {target[2]}: به تو نمی‌فروشم.")
